@@ -42,6 +42,13 @@ impl jam::runtime::AsReprRef<[u8]> for ArrayFoo {
   }
 }
 
+unsafe impl jam::runtime::OfReprRef<[u8]> for ArrayFoo {
+  #[inline(always)]
+  unsafe fn of_repr_ref(x: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &ArrayFoo>(x) }
+  }
+}
+
 impl ArrayFoo {
   pub fn len(&self) -> usize {
     self.0.len() / 8
@@ -122,12 +129,9 @@ impl Bar {
     unsafe { jam::runtime::unchecked::get_value::<Self, u64, 8>(self, 8) }
   }
 
-  /*
   pub fn c(&self) -> &ArrayFoo {
     let i = 16;
     let j = self.0.len();
-    let p = unsafe { jam::runtime::unchecked::get_slice(&self.0, i, j) };
-    unsafe { core::mem::transmute::<&[u8], &ArrayFoo>(self, p) }
+    unsafe { jam::runtime::unchecked::get_unsized_ref::<Self, ArrayFoo>(self, i, j) }
   }
-  */
 }

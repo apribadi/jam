@@ -221,10 +221,8 @@ pub mod unchecked {
     T: AsReprRef<[u8]> + ?Sized,
     U: Decode<N>
   {
-    let p = x.as_repr_ref().as_ptr();
-    let p = unsafe { p.add(i) };
-    let p = p as *const [u8; N];
-    let p = unsafe { &*p };
+    let p = x.as_repr_ref();
+    let p = unsafe { get_array::<N>(p, i) };
     unsafe { U::decode(*p) }
   }
 
@@ -234,10 +232,19 @@ pub mod unchecked {
     T: AsReprRef<[u8]> + ?Sized,
     U: OfReprRef<[u8; N]>
   {
-    let p = x.as_repr_ref().as_ptr();
-    let p = unsafe { p.add(i) };
-    let p = p as *const [u8; N];
-    let p = unsafe { &*p };
+    let p = x.as_repr_ref();
+    let p = unsafe { get_array::<N>(p, i) };
+    unsafe { U::of_repr_ref(p) }
+  }
+
+  #[inline(always)]
+  pub unsafe fn get_unsized_ref<T, U>(x: &T, i: usize, j: usize) -> &U
+  where
+    T: AsReprRef<[u8]> + ?Sized,
+    U: OfReprRef<[u8]> + ?Sized,
+  {
+    let p = x.as_repr_ref();
+    let p = unsafe { get_slice(p, i, j) };
     unsafe { U::of_repr_ref(p) }
   }
 
