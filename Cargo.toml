@@ -15,6 +15,10 @@ unused_lifetimes = "warn"
 unused_qualifications = "warn"
 unused_results = "warn"
 
+[[example]]
+crate-type = ["lib"]
+name = "spec"
+
 [dependencies]
 
 [dev-dependencies]

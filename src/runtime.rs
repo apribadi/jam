@@ -1,3 +1,9 @@
+#[inline(never)]
+#[cold]
+pub fn panic_index_out_of_bounds() -> ! {
+  panic!()
+}
+
 #[inline(always)]
 pub fn encode_bool(x: bool) -> [u8; 1] {
   [x as u8]
@@ -73,15 +79,6 @@ pub fn try_decode_bool(x: [u8; 1]) -> Option<bool> {
 }
 
 #[inline(always)]
-pub unsafe fn decode_bool_unchecked(x: [u8; 1]) -> bool {
-  match x[0] {
-    0 => false,
-    1 => true,
-    _ => unsafe { core::hint::unreachable_unchecked() },
-  }
-}
-
-#[inline(always)]
 pub fn decode_f32(x: [u8; 4]) -> f32 {
   f32::from_le_bytes(x)
 }
@@ -138,4 +135,36 @@ pub fn decode_u64(x: [u8; 8]) -> u64 {
 #[inline(always)]
 pub fn decode_u128(x: [u8; 16]) -> u128 {
   u128::from_le_bytes(x)
+}
+
+pub mod unchecked {
+  #[inline(always)]
+  pub unsafe fn get_array<const N: usize>(x: &[u8], i: usize) -> &[u8; N] {
+    let p = x.as_ptr();
+    let p = unsafe { p.add(i) };
+    let p = p as *const [u8; N];
+    unsafe { &*p }
+  }
+
+  #[inline(always)]
+  pub unsafe fn get_array_mut<const N: usize>(x: &mut [u8], i: usize) -> &mut [u8; N] {
+    let p = x.as_ptr();
+    let p = unsafe { p.add(i) };
+    let p = p as *mut [u8; N];
+    unsafe { &mut *p }
+  }
+
+  #[inline(always)]
+  pub unsafe fn get_slice(x: &[u8], i: usize, j: usize) -> &[u8] {
+    unsafe { x.get_unchecked(i .. j) }
+  }
+
+  #[inline(always)]
+  pub unsafe fn decode_bool(x: [u8; 1]) -> bool {
+    match x[0] {
+      0 => false,
+      1 => true,
+      _ => unsafe { core::hint::unreachable_unchecked() },
+    }
+  }
 }
