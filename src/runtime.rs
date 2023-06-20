@@ -1,3 +1,57 @@
+pub trait Encode<const N: usize> {
+  fn encode(x: Self) -> [u8; N];
+}
+
+pub unsafe trait Decode<const N: usize> : Encode<N> {
+  // SAFETY:
+  //
+  // The argument `x` must have been the result of `Self::encode(_)`.
+
+  unsafe fn decode(x: [u8; N]) -> Self;
+}
+
+pub trait AsReprRef<T>
+where
+  T: ?Sized
+{
+  fn as_repr_ref(&self) -> &T;
+}
+
+pub unsafe trait OfReprRef<T>
+where
+  T: ?Sized
+{
+  unsafe fn of_repr_ref(x: &T) -> &Self;
+}
+
+impl Encode<4> for u32 {
+  #[inline(always)]
+  fn encode(x: Self) -> [u8; 4] {
+    x.to_le_bytes()
+  }
+}
+
+unsafe impl Decode<4> for u32 {
+  #[inline(always)]
+  unsafe fn decode(x: [u8; 4]) -> Self {
+    u32::from_le_bytes(x)
+  }
+}
+
+impl Encode<8> for u64 {
+  #[inline(always)]
+  fn encode(x: Self) -> [u8; 8] {
+    x.to_le_bytes()
+  }
+}
+
+unsafe impl Decode<8> for u64 {
+  #[inline(always)]
+  unsafe fn decode(x: [u8; 8]) -> Self {
+    u64::from_le_bytes(x)
+  }
+}
+
 #[inline(never)]
 #[cold]
 pub fn panic_index_out_of_bounds() -> ! {
@@ -138,6 +192,8 @@ pub fn decode_u128(x: [u8; 16]) -> u128 {
 }
 
 pub mod unchecked {
+  use super::*;
+
   #[inline(always)]
   pub unsafe fn get_array<const N: usize>(x: &[u8], i: usize) -> &[u8; N] {
     let p = x.as_ptr();
@@ -157,6 +213,32 @@ pub mod unchecked {
   #[inline(always)]
   pub unsafe fn get_slice(x: &[u8], i: usize, j: usize) -> &[u8] {
     unsafe { x.get_unchecked(i .. j) }
+  }
+
+  #[inline(always)]
+  pub unsafe fn get_value<T, U, const N: usize>(x: &T, i: usize) -> U
+  where
+    T: AsReprRef<[u8]> + ?Sized,
+    U: Decode<N>
+  {
+    let p = x.as_repr_ref().as_ptr();
+    let p = unsafe { p.add(i) };
+    let p = p as *const [u8; N];
+    let p = unsafe { &*p };
+    unsafe { U::decode(*p) }
+  }
+
+  #[inline(always)]
+  pub unsafe fn get_ref<T, U, const N: usize>(x: &T, i: usize) -> &U
+  where
+    T: AsReprRef<[u8]> + ?Sized,
+    U: OfReprRef<[u8; N]>
+  {
+    let p = x.as_repr_ref().as_ptr();
+    let p = unsafe { p.add(i) };
+    let p = p as *const [u8; N];
+    let p = unsafe { &*p };
+    unsafe { U::of_repr_ref(p) }
   }
 
   #[inline(always)]
