@@ -4,31 +4,39 @@
 // end
 
 #[repr(transparent)]
-pub struct Foo([u8; 8]);
-
-impl jam::runtime::AsReprRef<[u8]> for Foo {
-  #[inline(always)]
-  fn as_repr_ref(&self) -> &[u8] {
-    &self.0
-  }
-}
-
-unsafe impl jam::runtime::OfReprRef<[u8; 8]> for Foo {
-  #[inline(always)]
-  unsafe fn of_repr_ref(x: &[u8; 8]) -> &Self {
-    unsafe { core::mem::transmute::<&[u8; 8], &Foo>(x) }
-  }
-}
+pub struct Foo([u8]);
 
 impl Foo {
-  pub fn a(&self) -> u32 {
-    unsafe { jam::runtime::unchecked::get_value::<Self, u32, 4>(self, 0) }
+  const I0: u32 = 0;
+  const I1: u32 = Self::I0 + jam::rt::size_of_value::<u32>();
+  const I2: u32 = Self::I1 + jam::rt::size_of_value::<u32>();
+
+  pub const SIZE: u32 = Self::I2;
+
+  pub fn x(&self) -> u32 {
+    unsafe { jam::rt::read::<u32>(&self.0, Self::I0) }
   }
 
-  pub fn b(&self) -> u32 {
-    unsafe { jam::runtime::unchecked::get_value::<Self, u32, 4>(self, 4) }
+  pub fn y(&self) -> u32 {
+    unsafe { jam::rt::read::<u32>(&self.0, Self::I1) }
   }
 }
+
+unsafe impl jam::Object for Foo {
+  const SIZE: u32 = Self::I2;
+
+  #[inline(always)]
+  unsafe fn new(slice: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(slice) }
+  }
+
+  #[inline(always)]
+  unsafe fn new_mut(slice: &mut [u8]) -> &mut Self {
+    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(slice) }
+  }
+}
+
+/*
 
 // Array[Foo]
 
@@ -58,12 +66,12 @@ impl ArrayFoo {
     if ! (index < self.len()) { jam::runtime::panic_index_out_of_bounds() }
 
     let i = 8 * index;
-    unsafe { jam::runtime::unchecked::get_ref::<Self, Foo, 8>(self, i) }
+    unsafe { jam::runtime::unchecked::get_ref::<_, _, _, 8>(self, i) }
   }
 
   pub unsafe fn get_unchecked(&self, index: usize) -> &Foo {
     let i = 8 * index;
-    unsafe { jam::runtime::unchecked::get_ref::<Self, Foo, 8>(self, i) }
+    unsafe { jam::runtime::unchecked::get_ref::<_, _, _, 8>(self, i) }
   }
 }
 
@@ -88,12 +96,12 @@ impl ArrayU32 {
     if ! (index < self.len()) { jam::runtime::panic_index_out_of_bounds() }
 
     let i = 4 * index;
-    unsafe { jam::runtime::unchecked::get_value::<Self, u32, 4>(self, i) }
+    unsafe { jam::runtime::unchecked::get_value::<_, _, u32, 4>(self, i) }
   }
 
   pub unsafe fn get_unchecked(&self, index: usize) -> u32 {
     let i = 4 * index;
-    unsafe { jam::runtime::unchecked::get_value::<Self, u32, 4>(self, i) }
+    unsafe { jam::runtime::unchecked::get_value::<_, _, u32, 4>(self, i) }
   }
 }
 
@@ -122,16 +130,25 @@ impl jam::runtime::AsReprRef<[u8]> for Bar {
 
 impl Bar {
   pub fn a(&self) -> &Foo {
-    unsafe { jam::runtime::unchecked::get_ref::<Self, Foo, 8>(self, 0) }
+    unsafe { jam::runtime::unchecked::get_ref::<_, _, _, 8>(self, 0) }
   }
 
   pub fn b(&self) -> u64 {
-    unsafe { jam::runtime::unchecked::get_value::<Self, u64, 8>(self, 8) }
+    unsafe { jam::runtime::unchecked::get_value::<_, _, _, 8>(self, 8) }
   }
 
+  /*
   pub fn c(&self) -> &ArrayFoo {
+    let i = 20;
+    let j = 20 + unsafe { jam::runtime::unchecked::get_value::<_, _, u32, 4>
     let i = 16;
     let j = self.0.len();
-    unsafe { jam::runtime::unchecked::get_unsized_ref::<Self, ArrayFoo>(self, i, j) }
+    unsafe { jam::runtime::unchecked::get_unsized_ref(self, i, j) }
   }
+  */
+}
+*/
+
+pub fn foo(x: &jam::ArrayO<Foo>, i: u32) -> &Foo {
+  x.get(i)
 }
