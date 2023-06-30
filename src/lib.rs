@@ -12,19 +12,19 @@ pub mod rt;
 /// - ???
 
 pub unsafe trait Value: Copy {
-  const SIZE: u32;
+  const SIZE: usize;
 
   /// SAFETY:
   ///
   /// ???
 
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self;
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self;
 
   /// SAFETY:
   ///
   /// ???
 
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self);
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self);
 }
 
 /// An `Object` is ...???
@@ -54,7 +54,7 @@ pub unsafe trait Object {
 /// ???
 
 pub unsafe trait SizedObject: Object {
-  const SIZE: u32;
+  const SIZE: usize;
 }
 
 /// An array of values.
@@ -89,7 +89,7 @@ impl<T> ArrayV<T>
 where
   T: Value
 {
-  const STRIDE: u32 = max(T::SIZE, 1);
+  const STRIDE: usize = max(T::SIZE, 1);
 
   /// ???
 
@@ -101,8 +101,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub fn len(&self) -> u32 {
-    self.buf.len() as u32 / Self::STRIDE
+  pub fn len(&self) -> usize {
+    self.buf.len() / Self::STRIDE
   }
 
   /// ???
@@ -112,12 +112,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get(&self, idx: u32) -> T {
-    let i = Self::STRIDE as u64 * idx as u64;
-    let n = self.buf.len() as u64;
-    if i >= n { panic_out_of_bounds() }
-    let i = i as u32;
-    unsafe { T::get(&self.buf, &mut {i}) }
+  pub fn get(&self, index: usize) -> T {
+    if index >= self.len() { panic_out_of_bounds() }
+    unsafe { self.get_unchecked(index) }
   }
 
   /// ???
@@ -127,8 +124,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked(&self, idx: u32) -> T {
-    let i = Self::STRIDE * idx;
+  pub unsafe fn get_unchecked(&self, index: usize) -> T {
+    let i = Self::STRIDE * index;
     unsafe { T::get(&self.buf, &mut {i}) }
   }
 
@@ -139,12 +136,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn set(&mut self, idx: u32, value: T) {
-    let i = Self::STRIDE as u64 * idx as u64;
-    let n = self.buf.len() as u64;
-    if i >= n { panic_out_of_bounds() }
-    let i = i as u32;
-    unsafe { T::set(&mut self.buf, &mut {i}, value) }
+  pub fn set(&mut self, index: usize, value: T) {
+    if index >= self.len() { panic_out_of_bounds() }
+    unsafe { self.set_unchecked(index, value) }
   }
 
   /// ???
@@ -154,8 +148,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn set_unchecked(&mut self, idx: u32, value: T) {
-    let i = Self::STRIDE * idx;
+  pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
+    let i = Self::STRIDE * index;
     unsafe { T::set(&mut self.buf, &mut {i}, value) }
   }
 
@@ -228,7 +222,7 @@ impl<T> ArrayO<T>
 where
   T: ?Sized + SizedObject
 {
-  const STRIDE: u32 = max(T::SIZE, 1);
+  const STRIDE: usize = max(T::SIZE, 1);
 
   /// ???
 
@@ -240,8 +234,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub fn len(&self) -> u32 {
-    self.buf.len() as u32 / Self::STRIDE
+  pub fn len(&self) -> usize {
+    self.buf.len() / Self::STRIDE
   }
 
   /// ???
@@ -251,11 +245,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get(&self, idx: u32) -> &T {
-    let i = Self::STRIDE as u64 * idx as u64;
-    let n = self.buf.len() as u64;
-    if i >= n { panic_out_of_bounds() }
-    let i = i as u32;
+  pub fn get(&self, index: usize) -> &T {
+    if index >= self.len() { panic_out_of_bounds() }
+    let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
     unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
   }
@@ -267,8 +259,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked(&self, idx: u32) -> &T {
-    let i = Self::STRIDE * idx;
+  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+    let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
     unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
   }
@@ -280,13 +272,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get_mut(&mut self, idx: u32) -> &mut T {
-    let i = Self::STRIDE as u64 * idx as u64;
-    let n = self.buf.len() as u64;
-    if i >= n { panic_out_of_bounds() }
-    let i = i as u32;
-    let j = i + Self::STRIDE;
-    unsafe { T::new_mut(rt::get_slice_mut(&mut self.buf, i, j)) }
+  pub fn get_mut(&mut self, index: usize) -> &mut T {
+    if index >= self.len() { panic_out_of_bounds() }
+    unsafe { self.get_unchecked_mut(index) }
   }
 
   /// ???
@@ -296,8 +284,8 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked_mut(&mut self, idx: u32) -> &mut T {
-    let i = Self::STRIDE * idx;
+  pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+    let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
     unsafe { T::new_mut(rt::get_slice_mut(&mut self.buf, i, j)) }
   }
@@ -376,106 +364,106 @@ where
 }
 
 unsafe impl Value for () {
-  const SIZE: u32 = 0;
+  const SIZE: usize = 0;
 
   #[inline(always)]
-  unsafe fn get(_: &[u8], _: &mut u32) -> Self {
+  unsafe fn get(_: &[u8], _: &mut usize) -> Self {
   }
 
   #[inline(always)]
-  unsafe fn set(_: &mut [u8], _: &mut u32, _: Self) {
+  unsafe fn set(_: &mut [u8], _: &mut usize, _: Self) {
   }
 }
 
 unsafe impl Value for u8 {
-  const SIZE: u32 = 1;
+  const SIZE: usize = 1;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for u16 {
-  const SIZE: u32 = 2;
+  const SIZE: usize = 2;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for u32 {
-  const SIZE: u32 = 4;
+  const SIZE: usize = 4;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for u64 {
-  const SIZE: u32 = 8;
+  const SIZE: usize = 8;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for f32 {
-  const SIZE: u32 = 4;
+  const SIZE: usize = 4;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for f64 {
-  const SIZE: u32 = 8;
+  const SIZE: usize = 8;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
 unsafe impl Value for bool {
-  const SIZE: u32 = 1;
+  const SIZE: usize = 1;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     match unsafe { u8::get(buf, ofs) } {
       0 => false,
       _ => true
@@ -483,7 +471,7 @@ unsafe impl Value for bool {
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     unsafe { u8::set(buf, ofs, value as u8) }
   }
 }
@@ -492,10 +480,10 @@ unsafe impl<T> Value for Option<T>
 where
   T: Value
 {
-  const SIZE: u32 = 1 + T::SIZE;
+  const SIZE: usize = 1 + T::SIZE;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     match unsafe { u8::get(buf, ofs) } {
       0 => None,
       _ => Some(unsafe { T::get(buf, ofs) })
@@ -503,7 +491,7 @@ where
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     match value {
       None => {
         unsafe { u8::set(buf, ofs, 0) };
@@ -521,10 +509,10 @@ where
   T: Value,
   E: Value
 {
-  const SIZE: u32 = 1 + max(T::SIZE, E::SIZE);
+  const SIZE: usize = 1 + max(T::SIZE, E::SIZE);
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     match unsafe { u8::get(buf, ofs) } {
       0 => Ok(unsafe { T::get(buf, ofs) }),
       _ => Err(unsafe { E::get(buf, ofs) })
@@ -532,7 +520,7 @@ where
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     match value {
       Ok(x) => {
         unsafe { u8::set(buf, ofs, 0) };
@@ -550,15 +538,15 @@ unsafe impl<T, const N: usize> Value for [T; N]
 where
   T: Value
 {
-  const SIZE: u32 = T::SIZE * N as u32;
+  const SIZE: usize = T::SIZE * N;
 
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
+  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     core::array::from_fn(|_| unsafe { T::get(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
+  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
     for &item in value.iter() {
       unsafe { T::set(buf, ofs, item) }
     }
@@ -572,6 +560,6 @@ fn panic_out_of_bounds() -> ! {
 }
 
 #[inline(always)]
-const fn max(x: u32, y: u32) -> u32 {
+const fn max(x: usize, y: usize) -> usize {
   if x >= y { x } else { y }
 }

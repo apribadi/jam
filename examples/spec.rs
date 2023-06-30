@@ -7,9 +7,9 @@
 pub struct Foo([u8]);
 
 impl Foo {
-  const OFS0: u32 = 0;
-  const OFS1: u32 = Self::OFS0 + jam::rt::size_of_value::<u32>();
-  const OFS2: u32 = Self::OFS1 + jam::rt::size_of_value::<u32>();
+  const OFS0: usize = 0;
+  const OFS1: usize = Self::OFS0 + jam::rt::size_of_value::<u32>();
+  const OFS2: usize = Self::OFS1 + jam::rt::size_of_value::<u32>();
 
   pub fn a(&self) -> u32 {
     let i = Self::OFS0;
@@ -35,7 +35,7 @@ unsafe impl jam::Object for Foo {
 }
 
 unsafe impl jam::SizedObject for Foo {
-  const SIZE: u32 = Self::OFS2;
+  const SIZE: usize = Self::OFS2;
 }
 
 // struct Bar
@@ -55,18 +55,18 @@ unsafe impl jam::SizedObject for Foo {
 pub struct Bar([u8]);
 
 impl Bar {
-  const OFS0: u32 = 4;
-  const OFS1: u32 = Self::OFS0 + jam::rt::size_of_object::<Foo>();
-  const OFS2: u32 = Self::OFS1 + jam::rt::size_of_value::<u64>();
+  const OFS0: usize = 4;
+  const OFS1: usize = Self::OFS0 + jam::rt::size_of_object::<Foo>();
+  const OFS2: usize = Self::OFS1 + jam::rt::size_of_value::<u64>();
 
   #[inline(always)]
-  fn ofs3(&self) -> u32 {
-    unsafe { jam::rt::get_u32(&self.0, 4 * 0) }
+  fn ofs3(&self) -> usize {
+    unsafe { jam::rt::get_u32(&self.0, 4 * 0) as usize }
   }
 
   #[inline(always)]
-  fn ofs4(&self) -> u32 {
-    self.0.len() as u32
+  fn ofs4(&self) -> usize {
+    self.0.len()
   }
 
   pub fn a(&self) -> &Foo {
@@ -93,7 +93,7 @@ impl Bar {
   }
 }
 
-pub fn foo(x: &jam::ArrayV<u32>, i: u32) -> u32 {
+pub fn foo(x: &jam::ArrayV<u32>, i: usize) -> u32 {
   x.get(i)
 }
 
