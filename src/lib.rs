@@ -464,10 +464,7 @@ unsafe impl Value for bool {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    match unsafe { u8::get(buf, ofs) } {
-      0 => false,
-      _ => true
-    }
+    0 != unsafe { u8::get(buf, ofs) }
   }
 
   #[inline(always)]
@@ -484,9 +481,10 @@ where
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    match unsafe { u8::get(buf, ofs) } {
-      0 => None,
-      _ => Some(unsafe { T::get(buf, ofs) })
+    if 0 == unsafe { u8::get(buf, ofs) } {
+      None
+    } else {
+      Some(unsafe { T::get(buf, ofs) })
     }
   }
 
@@ -513,9 +511,10 @@ where
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    match unsafe { u8::get(buf, ofs) } {
-      0 => Ok(unsafe { T::get(buf, ofs) }),
-      _ => Err(unsafe { E::get(buf, ofs) })
+    if 0 == unsafe { u8::get(buf, ofs) } {
+      Ok(unsafe { T::get(buf, ofs) })
+    } else {
+      Err(unsafe { E::get(buf, ofs) })
     }
   }
 
