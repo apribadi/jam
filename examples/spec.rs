@@ -14,17 +14,15 @@ impl Foo {
   pub const SIZE: u32 = Self::I2;
 
   pub fn x(&self) -> u32 {
-    unsafe { jam::rt::read::<u32>(&self.0, Self::I0) }
+    unsafe { jam::rt::read::<u32>(&self.0, &mut {Self::I0}) }
   }
 
   pub fn y(&self) -> u32 {
-    unsafe { jam::rt::read::<u32>(&self.0, Self::I1) }
+    unsafe { jam::rt::read::<u32>(&self.0, &mut {Self::I1}) }
   }
 }
 
 unsafe impl jam::Object for Foo {
-  const SIZE: u32 = Self::I2;
-
   #[inline(always)]
   unsafe fn new(slice: &[u8]) -> &Self {
     unsafe { core::mem::transmute::<&[u8], &Self>(slice) }
@@ -34,6 +32,10 @@ unsafe impl jam::Object for Foo {
   unsafe fn new_mut(slice: &mut [u8]) -> &mut Self {
     unsafe { core::mem::transmute::<&mut [u8], &mut Self>(slice) }
   }
+}
+
+unsafe impl jam::SizedObject for Foo {
+  const SIZE: u32 = Self::I2;
 }
 
 /*
@@ -149,6 +151,14 @@ impl Bar {
 }
 */
 
-pub fn foo(x: &jam::ArrayO<Foo>, i: u32) -> &Foo {
+pub fn foo(x: &jam::ArrayV<u32>, i: u32) -> u32 {
   x.get(i)
+}
+
+pub fn bar(x: &jam::ArrayV<u32>) -> u32 {
+  let mut n = 0;
+  for y in x.iter() {
+    n += y;
+  }
+  n
 }

@@ -16,27 +16,15 @@ pub unsafe trait Value: Copy {
 
   /// SAFETY:
   ///
-  /// The memory at `[ptr, ptr + SIZE)` must be valid for reading and
-  /// initialized. It is not required for `ptr` to be aligned.
+  /// ???
 
-  unsafe fn is_valid(ptr: *const u8) -> bool;
-
-  /// SAFETY:
-  ///
-  /// The memory at `[ptr, ptr + SIZE)` must be valid for reading and
-  /// initialized. It is not required for `ptr` to be aligned.
-  ///
-  /// The contents of the memory must have been checked by `is_valid` or must
-  /// have been written by a previous call to `write`.
-
-  unsafe fn read(ptr: *const u8) -> Self;
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self;
 
   /// SAFETY:
   ///
-  /// The memory at `[ptr, ptr + SIZE)` must be valid for writing. It is not
-  /// required for `ptr` to be initialized or aligned.
+  /// ???
 
-  unsafe fn write(ptr: *mut u8, value: Self);
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self);
 }
 
 /// An `Object` is ...???
@@ -45,7 +33,7 @@ pub unsafe trait Value: Copy {
 ///
 /// ???
 
-pub unsafe trait UnsizedObject {
+pub unsafe trait Object {
   /// SAFETY:
   ///
   /// ???
@@ -65,22 +53,8 @@ pub unsafe trait UnsizedObject {
 ///
 /// ???
 
-pub unsafe trait Object {
-  /// ???
-
+pub unsafe trait SizedObject: Object {
   const SIZE: u32;
-
-  /// SAFETY:
-  ///
-  /// ???
-
-  unsafe fn new(slice: &[u8]) -> &Self;
-
-  /// SAFETY:
-  ///
-  /// ???
-
-  unsafe fn new_mut(slice: &mut [u8]) -> &mut Self;
 }
 
 /// An array of values.
@@ -88,17 +62,18 @@ pub unsafe trait Object {
 /// Supports O(1) bounds-checked access by index.
 
 #[repr(transparent)]
-pub struct ArrayV<T: Value> {
+pub struct ArrayV<T>
+where
+  T: Value
+{
   _marker: core::marker::PhantomData<fn(T) -> T>,
   data: [u8],
 }
 
-/// SAFETY:
-///
-/// - ???
-/// - T::SIZE > 0 ???
-
-unsafe impl<T: Value> UnsizedObject for ArrayV<T> {
+unsafe impl<T> Object for ArrayV<T>
+where
+  T: Value
+{
   #[inline(always)]
   unsafe fn new(slice: &[u8]) -> &Self {
     unsafe { core::mem::transmute::<&[u8], &Self>(slice) }
@@ -110,55 +85,60 @@ unsafe impl<T: Value> UnsizedObject for ArrayV<T> {
   }
 }
 
-impl<T: Value> ArrayV<T> {
+impl<T> ArrayV<T>
+where
+  T: Value
+{
+  const STRIDE: u32 = if T::SIZE == 0 { 1 } else { T::SIZE };
+
+  /// ???
+
   #[inline(always)]
   pub fn is_empty(&self) -> bool {
     self.data.is_empty()
   }
 
+  /// ???
+
   #[inline(always)]
   pub fn len(&self) -> u32 {
-    self.data.len() as u32 / T::SIZE
+    self.data.len() as u32 / Self::STRIDE
   }
 
-  #[inline(never)]
-  #[cold]
-  fn panic_out_of_bounds() -> ! {
-    panic!()
-  }
-
+  /// ???
+  ///
   /// Panics:
   ///
   /// On out-of-bounds access.
 
   #[inline(always)]
   pub fn get(&self, index: u32) -> T {
-    let i = (T::SIZE as u64) * (index as u64);
+    let i = Self::STRIDE as u64 * index as u64;
     let n = self.data.len() as u64;
 
     if ! (i < n) { Self::panic_out_of_bounds() }
 
-    let p = self.data.as_ptr();
-    let i = i as usize;
+    let i = i as u32;
 
-    unsafe { T::read(p.add(i)) }
+    unsafe { T::read(&self.data, &mut {i}) }
   }
 
+  /// ???
+  ///
   /// Panics:
   ///
   /// On out-of-bounds access.
 
   #[inline(always)]
   pub fn set(&mut self, index: u32, value: T) {
-    let i = T::SIZE as u64 * index as u64;
+    let i = Self::STRIDE as u64 * index as u64;
     let n = self.data.len() as u64;
 
     if ! (i < n) { Self::panic_out_of_bounds() }
 
-    let p = self.data.as_mut_ptr();
-    let i = i as usize;
+    let i = i as u32;
 
-    unsafe { T::write(p.add(i), value) }
+    unsafe { T::write(&mut self.data, &mut {i}, value) }
   }
 
   /// ???
@@ -167,23 +147,43 @@ impl<T: Value> ArrayV<T> {
   pub fn iter(&self) -> impl '_ + Iterator<Item = T> {
     IterArrayV(self)
   }
+
+  #[inline(never)]
+  #[cold]
+  fn panic_out_of_bounds() -> ! {
+    panic!()
+  }
+
+  #[inline(always)]
+  unsafe fn get_unchecked(&self, index: u32) -> T {
+    let i = Self::STRIDE * index;
+    unsafe { T::read(&self.data, &mut {i}) }
+  }
+
+  #[inline(always)]
+  unsafe fn pop_unchecked(&self) -> &Self {
+    unsafe { Self::new(self.data.get_unchecked(Self::STRIDE as usize ..)) }
+  }
 }
 
-struct IterArrayV<'a, T: Value>(&'a ArrayV<T>);
+struct IterArrayV<'a, T>(&'a ArrayV<T>)
+where
+  T: Value;
 
-impl<'a, T: Value> Iterator for IterArrayV<'a, T> {
+impl<'a, T> Iterator for IterArrayV<'a, T>
+where
+  T: Value
+{
   type Item = T;
 
   #[inline(always)]
   fn next(&mut self) -> Option<Self::Item> {
-    if self.0.data.is_empty() {
+    if self.0.is_empty() {
       None
     } else {
-      let p = self.0.data.as_ptr();
-      let v = unsafe { T::read(p) };
-      let a = unsafe { ArrayV::new(self.0.data.get_unchecked(T::SIZE as usize ..)) };
-      self.0 = a;
-      Some(v)
+      let x = unsafe { self.0.get_unchecked(0) };
+      self.0 = unsafe { self.0.pop_unchecked() };
+      Some(x)
     }
   }
 }
@@ -193,17 +193,18 @@ impl<'a, T: Value> Iterator for IterArrayV<'a, T> {
 /// Supports O(1) bounds-checked access by index.
 
 #[repr(transparent)]
-pub struct ArrayO<T: ?Sized + Object> {
+pub struct ArrayO<T>
+where
+  T: ?Sized + SizedObject
+{
   _marker: core::marker::PhantomData<fn(T) -> T>,
   data: [u8],
 }
 
-unsafe impl<T: ?Sized + Object> UnsizedObject for ArrayO<T> {
-  /// SAFETY:
-  ///
-  /// - ???
-  /// - T::SIZE > 0 ???
-
+unsafe impl<T> Object for ArrayO<T>
+where
+  T: ?Sized + SizedObject
+{
   #[inline(always)]
   unsafe fn new(slice: &[u8]) -> &Self {
     unsafe { core::mem::transmute::<&[u8], &Self>(slice) }
@@ -215,23 +216,26 @@ unsafe impl<T: ?Sized + Object> UnsizedObject for ArrayO<T> {
   }
 }
 
-impl<T: ?Sized + Object> ArrayO<T> {
+impl<T> ArrayO<T>
+where
+  T: ?Sized + SizedObject
+{
+  /// ???
+
   #[inline(always)]
   pub fn is_empty(&self) -> bool {
     self.data.is_empty()
   }
+
+  /// ???
 
   #[inline(always)]
   pub fn len(&self) -> u32 {
     self.data.len() as u32 / T::SIZE
   }
 
-  #[inline(never)]
-  #[cold]
-  fn panic_out_of_bounds() -> ! {
-    panic!()
-  }
-
+  /// ???
+  ///
   /// Panics:
   ///
   /// On out-of-bounds access.
@@ -249,6 +253,8 @@ impl<T: ?Sized + Object> ArrayO<T> {
     unsafe { T::new(self.data.get_unchecked(i .. j)) }
   }
 
+  /// ???
+  ///
   /// Panics:
   ///
   /// On out-of-bounds access.
@@ -267,41 +273,40 @@ impl<T: ?Sized + Object> ArrayO<T> {
   }
 
   /*
+
   /// ???
 
   #[inline(always)]
-  pub fn iter(&self) -> impl '_ + Iterator<Item = T> {
-    IterArrayV(self)
+  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
+    IterArrayO(self)
   }
+
   */
+
+  #[inline(never)]
+  #[cold]
+  fn panic_out_of_bounds() -> ! {
+    panic!()
+  }
 }
 
 unsafe impl Value for u32 {
   const SIZE: u32 = 4;
 
   #[inline(always)]
-  unsafe fn is_valid(_: *const u8) -> bool {
-    true
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    u32::from_le_bytes(unsafe { rt::read_chunk(slice, offset) })
   }
 
-  #[inline(always)]
-  unsafe fn read(ptr: *const u8) -> u32 {
-    unsafe { core::ptr::read_unaligned(ptr as *const u32) }
-  }
-
-  #[inline(always)]
-  unsafe fn write(ptr: *mut u8, value: u32) {
-    unsafe { core::ptr::write_unaligned(ptr as *mut u32, value) }
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    unsafe { rt::write_chunk(slice, offset, value.to_le_bytes()) }
   }
 }
 
+/*
+
 unsafe impl Value for u64 {
   const SIZE: u32 = 4;
-
-  #[inline(always)]
-  unsafe fn is_valid(_: *const u8) -> bool {
-    true
-  }
 
   #[inline(always)]
   unsafe fn read(ptr: *const u8) -> u64 {
@@ -313,3 +318,4 @@ unsafe impl Value for u64 {
     unsafe { core::ptr::write_unaligned(ptr as *mut u64, value) }
   }
 }
+*/

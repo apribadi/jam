@@ -1,5 +1,35 @@
+use crate::SizedObject;
 use crate::Value;
-use crate::Object;
+
+#[inline(always)]
+pub unsafe fn chunk<const N: usize>(slice: &[u8], offset: u32) -> &[u8; N] {
+  let p = slice.as_ptr();
+  let p = unsafe { p.add(offset as usize) };
+  let p = p as *const [u8; N];
+  unsafe { &*p }
+}
+
+#[inline(always)]
+pub unsafe fn chunk_mut<const N: usize>(slice: &mut [u8], offset: u32) -> &mut [u8; N] {
+  let p = slice.as_mut_ptr();
+  let p = unsafe { p.add(offset as usize) };
+  let p = p as *mut [u8; N];
+  unsafe { &mut *p }
+}
+
+#[inline(always)]
+pub unsafe fn read_chunk<const N: usize>(slice: &[u8], offset: &mut u32) -> [u8; N] {
+  let p = unsafe { chunk(slice, *offset) };
+  *offset += N as u32;
+  *p
+}
+
+#[inline(always)]
+pub unsafe fn write_chunk<const N: usize>(slice: &mut [u8], offset: &mut u32, value: [u8; N]) {
+  let p = unsafe { chunk_mut(slice, *offset) };
+  *offset += N as u32;
+  *p = value;
+}
 
 #[inline(always)]
 pub const fn size_of_value<T: Value>() -> u32 {
@@ -7,14 +37,16 @@ pub const fn size_of_value<T: Value>() -> u32 {
 }
 
 #[inline(always)]
-pub const fn size_of_object<T: ?Sized + Object>() -> u32 {
+pub const fn size_of_object<T: ?Sized + SizedObject>() -> u32 {
   T::SIZE
 }
 
 #[inline(always)]
-pub unsafe fn read<T: Value>(slice: &[u8], offset: u32) -> T {
-  unsafe { T::read(slice.as_ptr().add(offset as usize)) }
+pub unsafe fn read<T: Value>(slice: &[u8], offset: &mut u32) -> T {
+  unsafe { T::read(slice, offset) }
 }
+
+/*
 
 #[inline(always)]
 pub unsafe fn subarray<const N: usize>(a: &[u8], i: usize) -> &[u8; N] {
@@ -174,3 +206,4 @@ pub fn decode_u64(x: [u8; 8]) -> u64 {
 pub fn decode_u128(x: [u8; 16]) -> u128 {
   u128::from_le_bytes(x)
 }
+*/
