@@ -1,161 +1,99 @@
-/*
+use crate::Object;
+use crate::SizedObject;
+use crate::Value;
 
 #[inline(always)]
-pub unsafe fn subarray<const N: usize>(a: &[u8], i: usize) -> &[u8; N] {
-  let p = a.as_ptr();
-  let p = unsafe { p.add(i) };
+pub unsafe fn get_array<const N: usize>(buf: &[u8], ofs: u32) -> &[u8; N] {
+  let p = buf.as_ptr();
+  let p = unsafe { p.add(ofs as usize) };
   let p = p as *const [u8; N];
   unsafe { &*p }
 }
 
 #[inline(always)]
-pub unsafe fn subarray_mut<const N: usize>(a: &mut [u8], i: usize) -> &mut [u8; N] {
-  let p = a.as_ptr();
-  let p = unsafe { p.add(i) };
+pub unsafe fn get_array_mut<const N: usize>(buf: &mut [u8], ofs: u32) -> &mut [u8; N] {
+  let p = buf.as_mut_ptr();
+  let p = unsafe { p.add(ofs as usize) };
   let p = p as *mut [u8; N];
   unsafe { &mut *p }
 }
 
 #[inline(always)]
-pub unsafe fn subslice(a: &[u8], i: usize, j: usize) -> &[u8] {
-  unsafe { a.get_unchecked(i .. j) }
+pub unsafe fn get_slice(buf: &[u8], lo: u32, hi: u32) -> &[u8] {
+  unsafe { buf.get_unchecked(lo as usize .. hi as usize) }
 }
 
 #[inline(always)]
-pub unsafe fn subslice_mut(a: &mut [u8], i: usize, j: usize) -> &mut [u8] {
-  unsafe { a.get_unchecked_mut(i .. j) }
-}
-
-// ENCODE
-
-#[inline(always)]
-pub fn encode_bool(x: bool) -> [u8; 1] {
-  [x as u8]
+pub unsafe fn get_slice_mut(buf: &mut [u8], lo: u32, hi: u32) -> &mut [u8] {
+  unsafe { buf.get_unchecked_mut(lo as usize .. hi as usize) }
 }
 
 #[inline(always)]
-pub fn encode_f32(x: f32) -> [u8; 4] {
-  x.to_le_bytes()
+pub unsafe fn pop_slice<'a>(buf: &mut &'a [u8], ofs: u32) -> &'a [u8] {
+  let x = unsafe { buf.get_unchecked(.. ofs as usize) };
+  let y = unsafe { buf.get_unchecked(ofs as usize ..) };
+  *buf = y;
+  x
 }
 
 #[inline(always)]
-pub fn encode_f64(x: f64) -> [u8; 8] {
-  x.to_le_bytes()
+pub unsafe fn pop_slice_mut<'a>(buf: &mut &'a mut [u8], ofs: u32) -> &'a mut [u8] {
+  let p = buf.as_mut_ptr();
+  let a = ofs as usize;
+  let b = buf.len() - a;
+  let x = unsafe { core::slice::from_raw_parts_mut(p, a) };
+  let y = unsafe { core::slice::from_raw_parts_mut(p.add(a), b) };
+  *buf = y;
+  x
 }
 
 #[inline(always)]
-pub fn encode_i8(x: i8) -> [u8; 1] {
-  x.to_le_bytes()
+pub unsafe fn get_bytes<const N: usize>(buf: &[u8], ofs: &mut u32) -> [u8; N] {
+  let p = unsafe { get_array(buf, *ofs) };
+  *ofs += N as u32;
+  *p
 }
 
 #[inline(always)]
-pub fn encode_i16(x: i16) -> [u8; 2] {
-  x.to_le_bytes()
+pub unsafe fn set_bytes<const N: usize>(buf: &mut [u8], ofs: &mut u32, value: [u8; N]) {
+  let p = unsafe { get_array_mut(buf, *ofs) };
+  *ofs += N as u32;
+  *p = value;
 }
 
 #[inline(always)]
-pub fn encode_i32(x: i32) -> [u8; 4] {
-  x.to_le_bytes()
+pub unsafe fn get_u32(buf: &[u8], ofs: u32) -> u32 {
+  unsafe { u32::get(buf, &mut {ofs}) }
 }
 
 #[inline(always)]
-pub fn encode_i64(x: i64) -> [u8; 8] {
-  x.to_le_bytes()
+pub unsafe fn get_value<T>(buf: &[u8], ofs: &mut u32) -> T
+where
+  T: Value
+{
+  unsafe { T::get(buf, ofs) }
 }
 
 #[inline(always)]
-pub fn encode_i128(x: i128) -> [u8; 16] {
-  x.to_le_bytes()
+pub unsafe fn get_object<T>(buf: &[u8], lo: u32, hi: u32) -> &T
+where
+  T: ?Sized + Object
+{
+  unsafe { T::new(get_slice(buf, lo, hi)) }
 }
 
 #[inline(always)]
-pub fn encode_u8(x: u8) -> [u8; 1] {
-  x.to_le_bytes()
+pub const fn size_of_value<T>() -> u32
+where
+  T: Value
+{
+  T::SIZE
 }
 
 #[inline(always)]
-pub fn encode_u16(x: u16) -> [u8; 2] {
-  x.to_le_bytes()
+pub const fn size_of_object<T>() -> u32
+where
+  T: ?Sized + SizedObject
+{
+  T::SIZE
 }
-
-#[inline(always)]
-pub fn encode_u32(x: u32) -> [u8; 4] {
-  x.to_le_bytes()
-}
-
-#[inline(always)]
-pub fn encode_u64(x: u64) -> [u8; 8] {
-  x.to_le_bytes()
-}
-
-#[inline(always)]
-pub fn encode_u128(x: u128) -> [u8; 16] {
-  x.to_le_bytes()
-}
-
-// DECODE
-
-#[inline(always)]
-pub fn decode_bool(x: [u8; 1]) -> bool {
-  x[0] != 0
-}
-
-#[inline(always)]
-pub fn decode_f32(x: [u8; 4]) -> f32 {
-  f32::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_f64(x: [u8; 8]) -> f64 {
-  f64::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_i8(x: [u8; 1]) -> i8 {
-  i8::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_i16(x: [u8; 2]) -> i16 {
-  i16::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_i32(x: [u8; 4]) -> i32 {
-  i32::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_i64(x: [u8; 8]) -> i64 {
-  i64::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_i128(x: [u8; 16]) -> i128 {
-  i128::from_le_bytes(x)
-}
-#[inline(always)]
-pub fn decode_u8(x: [u8; 1]) -> u8 {
-  u8::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_u16(x: [u8; 2]) -> u16 {
-  u16::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_u32(x: [u8; 4]) -> u32 {
-  u32::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_u64(x: [u8; 8]) -> u64 {
-  u64::from_le_bytes(x)
-}
-
-#[inline(always)]
-pub fn decode_u128(x: [u8; 16]) -> u128 {
-  u128::from_le_bytes(x)
-}
-*/

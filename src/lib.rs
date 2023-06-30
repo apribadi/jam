@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod rt;
+
 /// A `Value` is ...???
 ///
 /// SAFETY:
@@ -187,7 +189,7 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
+      let p = unsafe { rt::pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
       let x = unsafe { T::get(p, &mut {0}) };
       Some(x)
     }
@@ -254,7 +256,8 @@ where
     let n = self.buf.len() as u64;
     if i >= n { panic_out_of_bounds() }
     let i = i as u32;
-    unsafe { T::new(get_slice(&self.buf, i, Self::STRIDE)) }
+    let j = i + Self::STRIDE;
+    unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
   }
 
   /// ???
@@ -266,7 +269,8 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, idx: u32) -> &T {
     let i = Self::STRIDE * idx;
-    unsafe { T::new(get_slice(&self.buf, i, Self::STRIDE)) }
+    let j = i + Self::STRIDE;
+    unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
   }
 
   /// ???
@@ -281,7 +285,8 @@ where
     let n = self.buf.len() as u64;
     if i >= n { panic_out_of_bounds() }
     let i = i as u32;
-    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, Self::STRIDE)) }
+    let j = i + Self::STRIDE;
+    unsafe { T::new_mut(rt::get_slice_mut(&mut self.buf, i, j)) }
   }
 
   /// ???
@@ -293,7 +298,8 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked_mut(&mut self, idx: u32) -> &mut T {
     let i = Self::STRIDE * idx;
-    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, Self::STRIDE)) }
+    let j = i + Self::STRIDE;
+    unsafe { T::new_mut(rt::get_slice_mut(&mut self.buf, i, j)) }
   }
 
   /// ???
@@ -336,7 +342,7 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
+      let p = unsafe { rt::pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new(p) };
       Some(x)
     }
@@ -362,7 +368,7 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
+      let p = unsafe { rt::pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new_mut(p) };
       Some(x)
     }
@@ -386,12 +392,12 @@ unsafe impl Value for u8 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -400,12 +406,12 @@ unsafe impl Value for u16 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -414,12 +420,12 @@ unsafe impl Value for u32 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -428,12 +434,12 @@ unsafe impl Value for u64 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -442,12 +448,12 @@ unsafe impl Value for f32 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -456,12 +462,12 @@ unsafe impl Value for f64 {
 
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut u32, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -568,63 +574,4 @@ fn panic_out_of_bounds() -> ! {
 #[inline(always)]
 const fn max(x: u32, y: u32) -> u32 {
   if x >= y { x } else { y }
-}
-
-#[inline(always)]
-unsafe fn get_array<const N: usize>(buf: &[u8], ofs: u32) -> &[u8; N] {
-  let p = buf.as_ptr();
-  let p = unsafe { p.add(ofs as usize) };
-  let p = p as *const [u8; N];
-  unsafe { &*p }
-}
-
-#[inline(always)]
-unsafe fn get_array_mut<const N: usize>(buf: &mut [u8], ofs: u32) -> &mut [u8; N] {
-  let p = buf.as_mut_ptr();
-  let p = unsafe { p.add(ofs as usize) };
-  let p = p as *mut [u8; N];
-  unsafe { &mut *p }
-}
-
-#[inline(always)]
-unsafe fn get_slice(buf: &[u8], ofs: u32, len: u32) -> &[u8] {
-  unsafe { buf.get_unchecked(ofs as usize .. (ofs + len) as usize) }
-}
-
-#[inline(always)]
-unsafe fn get_slice_mut(buf: &mut [u8], ofs: u32, len: u32) -> &mut [u8] {
-  unsafe { buf.get_unchecked_mut(ofs as usize .. (ofs + len) as usize) }
-}
-
-#[inline(always)]
-unsafe fn pop_slice<'a>(buf: &mut &'a [u8], len: u32) -> &'a [u8] {
-  let x = unsafe { buf.get_unchecked(.. len as usize) };
-  let y = unsafe { buf.get_unchecked(len as usize ..) };
-  *buf = y;
-  x
-}
-
-#[inline(always)]
-unsafe fn pop_slice_mut<'a>(buf: &mut &'a mut [u8], len: u32) -> &'a mut [u8] {
-  let p = buf.as_mut_ptr();
-  let a = len as usize;
-  let b = buf.len() - a;
-  let x = unsafe { core::slice::from_raw_parts_mut(p, a) };
-  let y = unsafe { core::slice::from_raw_parts_mut(p.add(a), b) };
-  *buf = y;
-  x
-}
-
-#[inline(always)]
-unsafe fn get_bytes<const N: usize>(buf: &[u8], ofs: &mut u32) -> [u8; N] {
-  let p = unsafe { get_array(buf, *ofs) };
-  *ofs += N as u32;
-  *p
-}
-
-#[inline(always)]
-unsafe fn set_bytes<const N: usize>(buf: &mut [u8], ofs: &mut u32, value: [u8; N]) {
-  let p = unsafe { get_array_mut(buf, *ofs) };
-  *ofs += N as u32;
-  *p = value;
 }
