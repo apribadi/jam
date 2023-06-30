@@ -12,23 +12,23 @@ impl Foo {
   const OFS2: u32 = Self::OFS1 + <u32 as jam::Value>::SIZE;
 
   pub fn a(&self) -> u32 {
-    unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS0}) }
+    unsafe { <u32 as jam::Value>::get(&self.0, &mut {Self::OFS0}) }
   }
 
   pub fn b(&self) -> u32 {
-    unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS1}) }
+    unsafe { <u32 as jam::Value>::get(&self.0, &mut {Self::OFS1}) }
   }
 }
 
 unsafe impl jam::Object for Foo {
   #[inline(always)]
-  unsafe fn new(slice: &[u8]) -> &Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(slice) }
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute(buf) }
   }
 
   #[inline(always)]
-  unsafe fn new_mut(slice: &mut [u8]) -> &mut Self {
-    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(slice) }
+  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
+    unsafe { core::mem::transmute(buf) }
   }
 }
 
