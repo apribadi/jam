@@ -1,7 +1,5 @@
 #![no_std]
 
-pub mod rt;
-
 /// A `Value` is ...???
 ///
 /// SAFETY:
@@ -89,7 +87,7 @@ impl<T> ArrayV<T>
 where
   T: Value
 {
-  const STRIDE: u32 = if T::SIZE == 0 { 1 } else { T::SIZE };
+  const STRIDE: u32 = max(T::SIZE, 1);
 
   /// ???
 
@@ -220,6 +218,8 @@ impl<T> ArrayO<T>
 where
   T: ?Sized + SizedObject
 {
+  const STRIDE: u32 = max(T::SIZE, 1);
+
   /// ???
 
   #[inline(always)]
@@ -231,7 +231,7 @@ where
 
   #[inline(always)]
   pub fn len(&self) -> u32 {
-    self.data.len() as u32 / T::SIZE
+    self.data.len() as u32 / Self::STRIDE
   }
 
   /// ???
@@ -242,15 +242,15 @@ where
 
   #[inline(always)]
   pub fn get(&self, index: u32) -> &T {
-    let i = T::SIZE as u64 * index as u64;
+    let i = Self::STRIDE as u64 * index as u64;
     let n = self.data.len() as u64;
 
     if ! (i < n) { Self::panic_out_of_bounds() }
 
-    let i = i as usize;
-    let j = i + T::SIZE as usize;
+    let i = i as u32;
+    let j = i + Self::STRIDE;
 
-    unsafe { T::new(self.data.get_unchecked(i .. j)) }
+    unsafe { T::new(subslice(&self.data, i, j)) }
   }
 
   /// ???
@@ -261,15 +261,15 @@ where
 
   #[inline(always)]
   pub fn get_mut(&mut self, index: u32) -> &mut T {
-    let i = T::SIZE as u64 * index as u64;
+    let i = Self::STRIDE as u64 * index as u64;
     let n = self.data.len() as u64;
 
     if ! (i < n) { Self::panic_out_of_bounds() }
 
-    let i = i as usize;
-    let j = i + T::SIZE as usize;
+    let i = i as u32;
+    let j = i + Self::STRIDE;
 
-    unsafe { T::new_mut(self.data.get_unchecked_mut(i .. j)) }
+    unsafe { T::new_mut(subslice_mut(&mut self.data, i, j)) }
   }
 
   /*
@@ -290,32 +290,161 @@ where
   }
 }
 
+unsafe impl Value for u8 {
+  const SIZE: u32 = 1;
+
+  #[inline(always)]
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(slice, offset) })
+  }
+
+  #[inline(always)]
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    unsafe { write_chunk(slice, offset, value.to_le_bytes()) }
+  }
+}
+
 unsafe impl Value for u32 {
   const SIZE: u32 = 4;
 
   #[inline(always)]
   unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
-    u32::from_le_bytes(unsafe { rt::read_chunk(slice, offset) })
+    Self::from_le_bytes(unsafe { read_chunk(slice, offset) })
   }
 
+  #[inline(always)]
   unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { rt::write_chunk(slice, offset, value.to_le_bytes()) }
+    unsafe { write_chunk(slice, offset, value.to_le_bytes()) }
   }
 }
-
-/*
 
 unsafe impl Value for u64 {
-  const SIZE: u32 = 4;
+  const SIZE: u32 = 8;
 
   #[inline(always)]
-  unsafe fn read(ptr: *const u8) -> u64 {
-    unsafe { core::ptr::read_unaligned(ptr as *const u64) }
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(slice, offset) })
   }
 
   #[inline(always)]
-  unsafe fn write(ptr: *mut u8, value: u64) {
-    unsafe { core::ptr::write_unaligned(ptr as *mut u64, value) }
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    unsafe { write_chunk(slice, offset, value.to_le_bytes()) }
   }
 }
-*/
+
+unsafe impl Value for bool {
+  const SIZE: u32 = 1;
+
+  #[inline(always)]
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    0 != unsafe { u8::read(slice, offset) }
+  }
+
+  #[inline(always)]
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    unsafe { u8::write(slice, offset, value as u8) }
+  }
+}
+
+unsafe impl<T> Value for Option<T>
+where
+  T: Value
+{
+  const SIZE: u32 = 1 + T::SIZE;
+
+  #[inline(always)]
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    match unsafe { u8::read(slice, offset) } {
+      0 => None,
+      _ => Some(unsafe { T::read(slice, offset) })
+    }
+  }
+
+  #[inline(always)]
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    match value {
+      None => {
+        unsafe { u8::write(slice, offset, 0) };
+      }
+      Some(x) => {
+        unsafe { u8::write(slice, offset, 1) };
+        unsafe { T::write(slice, offset, x) };
+      }
+    }
+  }
+}
+
+unsafe impl<T, E> Value for Result<T, E>
+where
+  T: Value,
+  E: Value
+{
+  const SIZE: u32 = 1 + max(T::SIZE, E::SIZE);
+
+  #[inline(always)]
+  unsafe fn read(slice: &[u8], offset: &mut u32) -> Self {
+    match unsafe { u8::read(slice, offset) } {
+      0 => Ok(unsafe { T::read(slice, offset) }),
+      _ => Err(unsafe { E::read(slice, offset) })
+    }
+  }
+
+  #[inline(always)]
+  unsafe fn write(slice: &mut [u8], offset: &mut u32, value: Self) {
+    match value {
+      Ok(x) => {
+        unsafe { u8::write(slice, offset, 0) };
+        unsafe { T::write(slice, offset, x) };
+      }
+      Err(e) => {
+        unsafe { u8::write(slice, offset, 1) };
+        unsafe { E::write(slice, offset, e) };
+      }
+    }
+  }
+}
+
+#[inline(always)]
+const fn max(x: u32, y: u32) -> u32 {
+  if x >= y { x } else { y }
+}
+
+#[inline(always)]
+unsafe fn subslice(slice: &[u8], start: u32, stop: u32) -> &[u8] {
+  unsafe { slice.get_unchecked(start as usize .. stop as usize) }
+}
+
+#[inline(always)]
+unsafe fn subslice_mut(slice: &mut [u8], start: u32, stop: u32) -> &mut [u8] {
+  unsafe { slice.get_unchecked_mut(start as usize .. stop as usize) }
+}
+
+#[inline(always)]
+unsafe fn subchunk<const N: usize>(slice: &[u8], offset: u32) -> &[u8; N] {
+  let p = slice.as_ptr();
+  let p = unsafe { p.add(offset as usize) };
+  let p = p as *const [u8; N];
+  unsafe { &*p }
+}
+
+#[inline(always)]
+unsafe fn subchunk_mut<const N: usize>(slice: &mut [u8], offset: u32) -> &mut [u8; N] {
+  let p = slice.as_mut_ptr();
+  let p = unsafe { p.add(offset as usize) };
+  let p = p as *mut [u8; N];
+  unsafe { &mut *p }
+}
+
+#[inline(always)]
+unsafe fn read_chunk<const N: usize>(slice: &[u8], offset: &mut u32) -> [u8; N] {
+  let p = unsafe { subchunk(slice, *offset) };
+  *offset += N as u32;
+  *p
+}
+
+#[inline(always)]
+unsafe fn write_chunk<const N: usize>(slice: &mut [u8], offset: &mut u32, value: [u8; N]) {
+  let p = unsafe { subchunk_mut(slice, *offset) };
+  *offset += N as u32;
+  *p = value;
+}

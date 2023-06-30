@@ -7,18 +7,16 @@
 pub struct Foo([u8]);
 
 impl Foo {
-  const I0: u32 = 0;
-  const I1: u32 = Self::I0 + jam::rt::size_of_value::<u32>();
-  const I2: u32 = Self::I1 + jam::rt::size_of_value::<u32>();
-
-  pub const SIZE: u32 = Self::I2;
+  const OFS0: u32 = 0;
+  const OFS1: u32 = Self::OFS0 + <u32 as jam::Value>::SIZE;
+  const OFS2: u32 = Self::OFS1 + <u32 as jam::Value>::SIZE;
 
   pub fn x(&self) -> u32 {
-    unsafe { jam::rt::read::<u32>(&self.0, &mut {Self::I0}) }
+    unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS0}) }
   }
 
   pub fn y(&self) -> u32 {
-    unsafe { jam::rt::read::<u32>(&self.0, &mut {Self::I1}) }
+    unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS1}) }
   }
 }
 
@@ -35,7 +33,7 @@ unsafe impl jam::Object for Foo {
 }
 
 unsafe impl jam::SizedObject for Foo {
-  const SIZE: u32 = Self::I2;
+  const SIZE: u32 = Self::OFS2;
 }
 
 /*
