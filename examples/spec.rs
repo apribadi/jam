@@ -11,11 +11,11 @@ impl Foo {
   const OFS1: u32 = Self::OFS0 + <u32 as jam::Value>::SIZE;
   const OFS2: u32 = Self::OFS1 + <u32 as jam::Value>::SIZE;
 
-  pub fn x(&self) -> u32 {
+  pub fn a(&self) -> u32 {
     unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS0}) }
   }
 
-  pub fn y(&self) -> u32 {
+  pub fn b(&self) -> u32 {
     unsafe { <u32 as jam::Value>::read(&self.0, &mut {Self::OFS1}) }
   }
 }
@@ -158,5 +158,16 @@ pub fn bar(x: &jam::ArrayV<u32>) -> u32 {
   for y in x.iter() {
     n += y;
   }
+  n
+}
+
+pub fn baz(x: &jam::ArrayO<Foo>) -> u32 {
+  let mut n = 0;
+
+  for y in x.iter() {
+    n += y.a();
+    n += y.b();
+  }
+
   n
 }
