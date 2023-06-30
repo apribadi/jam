@@ -16,13 +16,13 @@ pub unsafe trait Value: Copy {
   ///
   /// ???
 
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self;
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self;
 
   /// SAFETY:
   ///
   /// ???
 
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self);
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self);
 }
 
 /// An `Object` is ...???
@@ -36,13 +36,13 @@ pub unsafe trait Object {
   ///
   /// ???
 
-  unsafe fn new(bytes: &[u8]) -> &Self;
+  unsafe fn new(buf: &[u8]) -> &Self;
 
   /// SAFETY:
   ///
   /// ???
 
-  unsafe fn new_mut(bytes: &mut [u8]) -> &mut Self;
+  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self;
 }
 
 /// A `SizedObject` is ...???
@@ -64,8 +64,8 @@ pub struct ArrayV<T>
 where
   T: Value
 {
-  _marker: core::marker::PhantomData<fn(T) -> T>,
-  bytes: [u8],
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
 }
 
 unsafe impl<T> Object for ArrayV<T>
@@ -73,13 +73,13 @@ where
   T: Value
 {
   #[inline(always)]
-  unsafe fn new(bytes: &[u8]) -> &Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(bytes) }
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
   }
 
   #[inline(always)]
-  unsafe fn new_mut(bytes: &mut [u8]) -> &mut Self {
-    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(bytes) }
+  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
+    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(buf) }
   }
 }
 
@@ -93,14 +93,14 @@ where
 
   #[inline(always)]
   pub fn is_empty(&self) -> bool {
-    self.bytes.is_empty()
+    self.buf.is_empty()
   }
 
   /// ???
 
   #[inline(always)]
   pub fn len(&self) -> u32 {
-    self.bytes.len() as u32 / Self::STRIDE
+    self.buf.len() as u32 / Self::STRIDE
   }
 
   /// ???
@@ -110,15 +110,15 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get(&self, index: u32) -> T {
-    let i = Self::STRIDE as u64 * index as u64;
-    let n = self.bytes.len() as u64;
+  pub fn get(&self, idx: u32) -> T {
+    let i = Self::STRIDE as u64 * idx as u64;
+    let n = self.buf.len() as u64;
 
     if i >= n { panic_out_of_bounds() }
 
     let i = i as u32;
 
-    unsafe { T::read(&self.bytes, &mut {i}) }
+    unsafe { T::read(&self.buf, &mut {i}) }
   }
 
   /// ???
@@ -128,9 +128,9 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked(&self, index: u32) -> T {
-    let i = Self::STRIDE * index;
-    unsafe { T::read(&self.bytes, &mut {i}) }
+  pub unsafe fn get_unchecked(&self, idx: u32) -> T {
+    let i = Self::STRIDE * idx;
+    unsafe { T::read(&self.buf, &mut {i}) }
   }
 
   /// ???
@@ -140,15 +140,15 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn set(&mut self, index: u32, value: T) {
-    let i = Self::STRIDE as u64 * index as u64;
-    let n = self.bytes.len() as u64;
+  pub fn set(&mut self, idx: u32, value: T) {
+    let i = Self::STRIDE as u64 * idx as u64;
+    let n = self.buf.len() as u64;
 
     if i >= n { panic_out_of_bounds() }
 
     let i = i as u32;
 
-    unsafe { T::write(&mut self.bytes, &mut {i}, value) }
+    unsafe { T::write(&mut self.buf, &mut {i}, value) }
   }
 
   /// ???
@@ -158,9 +158,9 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn set_unchecked(&mut self, index: u32, value: T) {
-    let i = Self::STRIDE * index;
-    unsafe { T::write(&mut self.bytes, &mut {i}, value) }
+  pub unsafe fn set_unchecked(&mut self, idx: u32, value: T) {
+    let i = Self::STRIDE * idx;
+    unsafe { T::write(&mut self.buf, &mut {i}, value) }
   }
 
   /// ???
@@ -168,8 +168,8 @@ where
   #[inline(always)]
   pub fn iter(&self) -> impl '_ + Iterator<Item = T> {
     IterArrayV {
-      _marker: core::marker::PhantomData,
-      bytes: &self.bytes,
+      _pd: core::marker::PhantomData,
+      buf: &self.buf,
     }
   }
 }
@@ -178,8 +178,8 @@ struct IterArrayV<'a, T>
 where
   T: Value
 {
-  _marker: core::marker::PhantomData<fn(T) -> T>,
-  bytes: &'a [u8],
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: &'a [u8],
 }
 
 impl<'a, T> Iterator for IterArrayV<'a, T>
@@ -190,10 +190,10 @@ where
 
   #[inline(always)]
   fn next(&mut self) -> Option<Self::Item> {
-    if self.bytes.is_empty() {
+    if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { pop_slice(&mut self.bytes, ArrayV::<T>::STRIDE) };
+      let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
       let x = unsafe { T::read(p, &mut {0}) };
       Some(x)
     }
@@ -209,8 +209,8 @@ pub struct ArrayO<T>
 where
   T: ?Sized + SizedObject
 {
-  _marker: core::marker::PhantomData<fn(T) -> T>,
-  bytes: [u8],
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
 }
 
 unsafe impl<T> Object for ArrayO<T>
@@ -218,13 +218,13 @@ where
   T: ?Sized + SizedObject
 {
   #[inline(always)]
-  unsafe fn new(bytes: &[u8]) -> &Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(bytes) }
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
   }
 
   #[inline(always)]
-  unsafe fn new_mut(bytes: &mut [u8]) -> &mut Self {
-    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(bytes) }
+  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
+    unsafe { core::mem::transmute::<&mut [u8], &mut Self>(buf) }
   }
 }
 
@@ -238,14 +238,14 @@ where
 
   #[inline(always)]
   pub fn is_empty(&self) -> bool {
-    self.bytes.is_empty()
+    self.buf.is_empty()
   }
 
   /// ???
 
   #[inline(always)]
   pub fn len(&self) -> u32 {
-    self.bytes.len() as u32 / Self::STRIDE
+    self.buf.len() as u32 / Self::STRIDE
   }
 
   /// ???
@@ -255,12 +255,12 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get(&self, index: u32) -> &T {
-    let i = Self::STRIDE as u64 * index as u64;
-    let n = self.bytes.len() as u64;
+  pub fn get(&self, idx: u32) -> &T {
+    let i = Self::STRIDE as u64 * idx as u64;
+    let n = self.buf.len() as u64;
     if i >= n { panic_out_of_bounds() }
     let i = i as u32;
-    unsafe { T::new(get_slice(&self.bytes, i, Self::STRIDE)) }
+    unsafe { T::new(get_slice(&self.buf, i, Self::STRIDE)) }
   }
 
   /// ???
@@ -270,9 +270,9 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked(&self, index: u32) -> &T {
-    let i = Self::STRIDE * index;
-    unsafe { T::new(get_slice(&self.bytes, i, Self::STRIDE)) }
+  pub unsafe fn get_unchecked(&self, idx: u32) -> &T {
+    let i = Self::STRIDE * idx;
+    unsafe { T::new(get_slice(&self.buf, i, Self::STRIDE)) }
   }
 
   /// ???
@@ -282,12 +282,12 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get_mut(&mut self, index: u32) -> &mut T {
-    let i = Self::STRIDE as u64 * index as u64;
-    let n = self.bytes.len() as u64;
+  pub fn get_mut(&mut self, idx: u32) -> &mut T {
+    let i = Self::STRIDE as u64 * idx as u64;
+    let n = self.buf.len() as u64;
     if i >= n { panic_out_of_bounds() }
     let i = i as u32;
-    unsafe { T::new_mut(get_slice_mut(&mut self.bytes, i, Self::STRIDE)) }
+    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, Self::STRIDE)) }
   }
 
   /// ???
@@ -297,9 +297,9 @@ where
   /// ???
 
   #[inline(always)]
-  pub unsafe fn get_unchecked_mut(&mut self, index: u32) -> &mut T {
-    let i = Self::STRIDE * index;
-    unsafe { T::new_mut(get_slice_mut(&mut self.bytes, i, Self::STRIDE)) }
+  pub unsafe fn get_unchecked_mut(&mut self, idx: u32) -> &mut T {
+    let i = Self::STRIDE * idx;
+    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, Self::STRIDE)) }
   }
 
   /// ???
@@ -307,28 +307,28 @@ where
   #[inline(always)]
   pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
     IterArrayO {
-      _marker: core::marker::PhantomData,
-      bytes: &self.bytes,
+      _pd: core::marker::PhantomData,
+      buf: &self.buf,
     }
   }
 
+  /// ???
+
   #[inline(always)]
-  unsafe fn pop_unchecked_mut(&mut self) -> (&mut T, &mut Self) {
-    // let x = unsafe { self.bytes.get_unchecked_mut(Self::STRIDE as usize ..) };
-    // let y = unsafe { self.bytes.get_unchecked_mut(.. Self::STRIDE as usize) };
-    let (x, y) = self.bytes.split_at_mut(Self::STRIDE as usize);
-    let x = unsafe { T::new_mut(x) };
-    let y = unsafe { Self::new_mut(y) };
-    (x, y)
+  pub fn iter_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut T> {
+    IterMutArrayO {
+      _pd: core::marker::PhantomData,
+      buf: &mut self.buf,
+    }
   }
 }
 
 struct IterArrayO<'a, T>
 where
-  T: ?Sized + SizedObject
+  T: 'a + ?Sized + SizedObject
 {
-  _marker: core::marker::PhantomData<fn(T) -> T>,
-  bytes: &'a [u8],
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: &'a [u8],
 }
 
 impl<'a, T> Iterator for IterArrayO<'a, T>
@@ -339,37 +339,38 @@ where
 
   #[inline(always)]
   fn next(&mut self) -> Option<Self::Item> {
-    if self.bytes.is_empty() {
+    if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { pop_slice(&mut self.bytes, ArrayO::<T>::STRIDE) };
+      let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new(p) };
       Some(x)
     }
   }
 }
 
-struct IterMutArrayO<'a, T>(&'a mut ArrayO<T>)
+struct IterMutArrayO<'a, T>
 where
-  T: ?Sized + SizedObject;
+  T: 'a + ?Sized + SizedObject
+{
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: &'a mut [u8],
+}
 
 impl<'a, T> Iterator for IterMutArrayO<'a, T>
 where
-  T: ?Sized + SizedObject
+  T: 'a + ?Sized + SizedObject
 {
   type Item = &'a mut T;
 
   #[inline(always)]
   fn next(&mut self) -> Option<Self::Item> {
-    if self.0.is_empty() {
+    if self.buf.is_empty() {
       None
     } else {
-      /*
-      let (x, y) = unsafe { self.0.pop_unchecked_mut() };
-      self.0 = y;
+      let p = unsafe { pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
+      let x = unsafe { T::new_mut(p) };
       Some(x)
-      */
-      panic!()
     }
   }
 }
@@ -378,16 +379,16 @@ unsafe impl Value for () {
   const SIZE: u32 = 0;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    let _ = bytes;
-    let _ = offset;
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    let _ = buf;
+    let _ = ofs;
     ()
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    let _ = bytes;
-    let _ = offset;
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    let _ = buf;
+    let _ = ofs;
     let _ = value;
   }
 }
@@ -396,13 +397,13 @@ unsafe impl Value for u8 {
   const SIZE: u32 = 1;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -410,13 +411,13 @@ unsafe impl Value for u16 {
   const SIZE: u32 = 2;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -424,13 +425,13 @@ unsafe impl Value for u32 {
   const SIZE: u32 = 4;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -438,13 +439,13 @@ unsafe impl Value for u64 {
   const SIZE: u32 = 8;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -452,13 +453,13 @@ unsafe impl Value for f32 {
   const SIZE: u32 = 4;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -466,13 +467,13 @@ unsafe impl Value for f64 {
   const SIZE: u32 = 8;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    Self::from_le_bytes(unsafe { read_chunk(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    Self::from_le_bytes(unsafe { read_chunk(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { write_chunk(bytes, offset, value.to_le_bytes()) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { write_chunk(buf, ofs, value.to_le_bytes()) }
   }
 }
 
@@ -480,16 +481,16 @@ unsafe impl Value for bool {
   const SIZE: u32 = 1;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    match unsafe { u8::read(bytes, offset) } {
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    match unsafe { u8::read(buf, ofs) } {
       0 => false,
       _ => true
     }
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
-    unsafe { u8::write(bytes, offset, value as u8) }
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
+    unsafe { u8::write(buf, ofs, value as u8) }
   }
 }
 
@@ -500,22 +501,22 @@ where
   const SIZE: u32 = 1 + T::SIZE;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    match unsafe { u8::read(bytes, offset) } {
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    match unsafe { u8::read(buf, ofs) } {
       0 => None,
-      _ => Some(unsafe { T::read(bytes, offset) })
+      _ => Some(unsafe { T::read(buf, ofs) })
     }
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
     match value {
       None => {
-        unsafe { u8::write(bytes, offset, 0) };
+        unsafe { u8::write(buf, ofs, 0) };
       }
       Some(x) => {
-        unsafe { u8::write(bytes, offset, 1) };
-        unsafe { T::write(bytes, offset, x) };
+        unsafe { u8::write(buf, ofs, 1) };
+        unsafe { T::write(buf, ofs, x) };
       }
     }
   }
@@ -529,23 +530,23 @@ where
   const SIZE: u32 = 1 + max(T::SIZE, E::SIZE);
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    match unsafe { u8::read(bytes, offset) } {
-      0 => Ok(unsafe { T::read(bytes, offset) }),
-      _ => Err(unsafe { E::read(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    match unsafe { u8::read(buf, ofs) } {
+      0 => Ok(unsafe { T::read(buf, ofs) }),
+      _ => Err(unsafe { E::read(buf, ofs) })
     }
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
     match value {
       Ok(x) => {
-        unsafe { u8::write(bytes, offset, 0) };
-        unsafe { T::write(bytes, offset, x) };
+        unsafe { u8::write(buf, ofs, 0) };
+        unsafe { T::write(buf, ofs, x) };
       }
       Err(e) => {
-        unsafe { u8::write(bytes, offset, 1) };
-        unsafe { E::write(bytes, offset, e) };
+        unsafe { u8::write(buf, ofs, 1) };
+        unsafe { E::write(buf, ofs, e) };
       }
     }
   }
@@ -558,14 +559,14 @@ where
   const SIZE: u32 = T::SIZE * N as u32;
 
   #[inline(always)]
-  unsafe fn read(bytes: &[u8], offset: &mut u32) -> Self {
-    core::array::from_fn(|_| unsafe { T::read(bytes, offset) })
+  unsafe fn read(buf: &[u8], ofs: &mut u32) -> Self {
+    core::array::from_fn(|_| unsafe { T::read(buf, ofs) })
   }
 
   #[inline(always)]
-  unsafe fn write(bytes: &mut [u8], offset: &mut u32, value: Self) {
+  unsafe fn write(buf: &mut [u8], ofs: &mut u32, value: Self) {
     for &item in value.iter() {
-      unsafe { T::write(bytes, offset, item) }
+      unsafe { T::write(buf, ofs, item) }
     }
   }
 }
@@ -582,61 +583,60 @@ const fn max(x: u32, y: u32) -> u32 {
 }
 
 #[inline(always)]
-unsafe fn get_chunk<const N: usize>(bytes: &[u8], offset: u32) -> &[u8; N] {
-  let p = bytes.as_ptr();
-  let p = unsafe { p.add(offset as usize) };
+unsafe fn get_chunk<const N: usize>(buf: &[u8], ofs: u32) -> &[u8; N] {
+  let p = buf.as_ptr();
+  let p = unsafe { p.add(ofs as usize) };
   let p = p as *const [u8; N];
   unsafe { &*p }
 }
 
 #[inline(always)]
-unsafe fn get_chunk_mut<const N: usize>(bytes: &mut [u8], offset: u32) -> &mut [u8; N] {
-  let p = bytes.as_mut_ptr();
-  let p = unsafe { p.add(offset as usize) };
+unsafe fn get_chunk_mut<const N: usize>(buf: &mut [u8], ofs: u32) -> &mut [u8; N] {
+  let p = buf.as_mut_ptr();
+  let p = unsafe { p.add(ofs as usize) };
   let p = p as *mut [u8; N];
   unsafe { &mut *p }
 }
 
 #[inline(always)]
-unsafe fn get_slice(bytes: &[u8], offset: u32, length: u32) -> &[u8] {
-  let i = offset as usize;
-  let j = (offset + length) as usize;
-  unsafe { bytes.get_unchecked(i .. j) }
+unsafe fn get_slice(buf: &[u8], ofs: u32, len: u32) -> &[u8] {
+  unsafe { buf.get_unchecked(ofs as usize .. (ofs + len) as usize) }
 }
 
 #[inline(always)]
-unsafe fn get_slice_mut(bytes: &mut [u8], offset: u32, length: u32) -> &mut [u8] {
-  let i = offset as usize;
-  let j = (offset + length) as usize;
-  unsafe { bytes.get_unchecked_mut(i .. j) }
+unsafe fn get_slice_mut(buf: &mut [u8], ofs: u32, len: u32) -> &mut [u8] {
+  unsafe { buf.get_unchecked_mut(ofs as usize .. (ofs + len) as usize) }
 }
 
 #[inline(always)]
-unsafe fn pop_slice<'a, 'b>(bytes: &'a mut &'b [u8], length: u32) -> &'b [u8] {
-  let i = length as usize;
-  let x = unsafe { bytes.get_unchecked(.. i) };
-  let y = unsafe { bytes.get_unchecked(.. i) };
-  *bytes = y;
+unsafe fn pop_slice<'a>(buf: &mut &'a [u8], len: u32) -> &'a [u8] {
+  let x = unsafe { buf.get_unchecked(.. len as usize) };
+  let y = unsafe { buf.get_unchecked(len as usize ..) };
+  *buf = y;
   x
 }
 
-/*
 #[inline(always)]
-unsafe fn split_at(bytes: &[u8], i: u32) -> (&[u8], &[u8]) {
-  unsafe { (bytes.get_unchecked(.. i as usize), bytes.get_unchecked(i as usize ..)) }
+unsafe fn pop_slice_mut<'a>(buf: &mut &'a mut [u8], len: u32) -> &'a mut [u8] {
+  let p = buf.as_mut_ptr();
+  let a = len as usize;
+  let b = buf.len() - a;
+  let x = unsafe { core::slice::from_raw_parts_mut(p, a) };
+  let y = unsafe { core::slice::from_raw_parts_mut(p.add(a), b) };
+  *buf = y;
+  x
 }
-*/
 
 #[inline(always)]
-unsafe fn read_chunk<const N: usize>(bytes: &[u8], offset: &mut u32) -> [u8; N] {
-  let p = unsafe { get_chunk(bytes, *offset) };
-  *offset += N as u32;
+unsafe fn read_chunk<const N: usize>(buf: &[u8], ofs: &mut u32) -> [u8; N] {
+  let p = unsafe { get_chunk(buf, *ofs) };
+  *ofs += N as u32;
   *p
 }
 
 #[inline(always)]
-unsafe fn write_chunk<const N: usize>(bytes: &mut [u8], offset: &mut u32, value: [u8; N]) {
-  let p = unsafe { get_chunk_mut(bytes, *offset) };
-  *offset += N as u32;
+unsafe fn write_chunk<const N: usize>(buf: &mut [u8], ofs: &mut u32, value: [u8; N]) {
+  let p = unsafe { get_chunk_mut(buf, *ofs) };
+  *ofs += N as u32;
   *p = value;
 }
