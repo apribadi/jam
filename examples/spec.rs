@@ -8,18 +8,22 @@ pub struct Foo([u8]);
 
 impl Foo {
   const OFS0: usize = 0;
-  const OFS1: usize = Self::OFS0 + jam::rt::size_of_value::<u32>();
-  const OFS2: usize = Self::OFS1 + jam::rt::size_of_value::<u32>();
+  const OFS1: usize = Self::OFS0 + jam::internal::size_of::<u32>();
+  const OFS2: usize = Self::OFS1 + jam::internal::size_of::<u32>();
 
   pub fn a(&self) -> u32 {
     let i = Self::OFS0;
-    unsafe { jam::rt::get_value(&self.0, &mut {i}) }
+    unsafe { jam::internal::get_value(&self.0, &mut {i}) }
   }
 
   pub fn b(&self) -> u32 {
     let i = Self::OFS2;
-    unsafe { jam::rt::get_value(&self.0, &mut {i}) }
+    unsafe { jam::internal::get_value(&self.0, &mut {i}) }
   }
+}
+
+unsafe impl jam::Layout for Foo {
+  const SIZE: usize = Self::OFS2;
 }
 
 unsafe impl jam::Object for Foo {
@@ -32,10 +36,6 @@ unsafe impl jam::Object for Foo {
   unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
     unsafe { core::mem::transmute(buf) }
   }
-}
-
-unsafe impl jam::SizedObject for Foo {
-  const SIZE: usize = Self::OFS2;
 }
 
 // struct Bar
@@ -56,12 +56,12 @@ pub struct Bar([u8]);
 
 impl Bar {
   const OFS0: usize = 4;
-  const OFS1: usize = Self::OFS0 + jam::rt::size_of_object::<Foo>();
-  const OFS2: usize = Self::OFS1 + jam::rt::size_of_value::<u64>();
+  const OFS1: usize = Self::OFS0 + jam::internal::size_of::<Foo>();
+  const OFS2: usize = Self::OFS1 + jam::internal::size_of::<u64>();
 
   #[inline(always)]
   fn ofs3(&self) -> usize {
-    unsafe { jam::rt::get_u32(&self.0, 4 * 0) as usize }
+    unsafe { jam::internal::get_offset(&self.0, 4 * 0) }
   }
 
   #[inline(always)]
@@ -72,24 +72,24 @@ impl Bar {
   pub fn a(&self) -> &Foo {
     let i = Self::OFS0;
     let j = Self::OFS1;
-    unsafe { jam::rt::get_object(&self.0, i, j) }
+    unsafe { jam::internal::get_object(&self.0, i, j) }
   }
 
   pub fn b(&self) -> u64 {
     let i = Self::OFS1;
-    unsafe { jam::rt::get_value(&self.0, &mut {i}) }
+    unsafe { jam::internal::get_value(&self.0, &mut {i}) }
   }
 
   pub fn c(&self) -> &jam::ArrayO<Foo> {
     let i = Self::OFS2;
     let j = self.ofs3();
-    unsafe { jam::rt::get_object(&self.0, i, j) }
+    unsafe { jam::internal::get_object(&self.0, i, j) }
   }
 
   pub fn d(&self) -> &jam::ArrayV<u64> {
     let i = self.ofs3();
     let j = self.ofs4();
-    unsafe { jam::rt::get_object(&self.0, i, j) }
+    unsafe { jam::internal::get_object(&self.0, i, j) }
   }
 }
 

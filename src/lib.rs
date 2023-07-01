@@ -1,6 +1,17 @@
 #![no_std]
 
-pub mod rt;
+pub mod internal;
+
+use crate::internal::get_bytes;
+use crate::internal::get_slice;
+use crate::internal::get_slice_mut;
+use crate::internal::pop_slice;
+use crate::internal::pop_slice_mut;
+use crate::internal::set_bytes;
+
+pub unsafe trait Layout {
+  const SIZE: usize;
+}
 
 /// A `Value` is ...???
 ///
@@ -11,9 +22,7 @@ pub mod rt;
 ///
 /// - ???
 
-pub unsafe trait Value: Copy {
-  const SIZE: usize;
-
+pub unsafe trait Value: Copy + Layout {
   /// SAFETY:
   ///
   /// ???
@@ -45,16 +54,6 @@ pub unsafe trait Object {
   /// ???
 
   unsafe fn new_mut(buf: &mut [u8]) -> &mut Self;
-}
-
-/// A `SizedObject` is ...???
-///
-/// SAFETY:
-///
-/// ???
-
-pub unsafe trait SizedObject: Object {
-  const SIZE: usize;
 }
 
 /// An array of values.
@@ -183,7 +182,7 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { rt::pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
+      let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
       let x = unsafe { T::get(p, &mut {0}) };
       Some(x)
     }
@@ -197,7 +196,7 @@ where
 #[repr(transparent)]
 pub struct ArrayO<T>
 where
-  T: ?Sized + SizedObject
+  T: ?Sized + Layout + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: [u8],
@@ -205,7 +204,7 @@ where
 
 unsafe impl<T> Object for ArrayO<T>
 where
-  T: ?Sized + SizedObject
+  T: ?Sized + Layout + Object
 {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
@@ -220,7 +219,7 @@ where
 
 impl<T> ArrayO<T>
 where
-  T: ?Sized + SizedObject
+  T: ?Sized + Layout + Object
 {
   const STRIDE: usize = max(T::SIZE, 1);
 
@@ -249,7 +248,7 @@ where
     if index >= self.len() { panic_out_of_bounds() }
     let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
-    unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
+    unsafe { T::new(get_slice(&self.buf, i, j)) }
   }
 
   /// ???
@@ -262,7 +261,7 @@ where
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
-    unsafe { T::new(rt::get_slice(&self.buf, i, j)) }
+    unsafe { T::new(get_slice(&self.buf, i, j)) }
   }
 
   /// ???
@@ -287,7 +286,7 @@ where
   pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
     let i = Self::STRIDE * index;
     let j = i + Self::STRIDE;
-    unsafe { T::new_mut(rt::get_slice_mut(&mut self.buf, i, j)) }
+    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, j)) }
   }
 
   /// ???
@@ -313,7 +312,7 @@ where
 
 struct IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizedObject
+  T: 'a + ?Sized + Layout + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: &'a [u8],
@@ -321,7 +320,7 @@ where
 
 impl<'a, T> Iterator for IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizedObject
+  T: 'a + ?Sized + Layout + Object
 {
   type Item = &'a T;
 
@@ -330,7 +329,7 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { rt::pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
+      let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new(p) };
       Some(x)
     }
@@ -339,7 +338,7 @@ where
 
 struct IterMutArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizedObject
+  T: 'a + ?Sized + Layout + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: &'a mut [u8],
@@ -347,7 +346,7 @@ where
 
 impl<'a, T> Iterator for IterMutArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizedObject
+  T: 'a + ?Sized + Layout + Object
 {
   type Item = &'a mut T;
 
@@ -356,16 +355,18 @@ where
     if self.buf.is_empty() {
       None
     } else {
-      let p = unsafe { rt::pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
+      let p = unsafe { pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new_mut(p) };
       Some(x)
     }
   }
 }
 
-unsafe impl Value for () {
+unsafe impl Layout for () {
   const SIZE: usize = 0;
+}
 
+unsafe impl Value for () {
   #[inline(always)]
   unsafe fn get(_: &[u8], _: &mut usize) -> Self {
   }
@@ -375,93 +376,107 @@ unsafe impl Value for () {
   }
 }
 
-unsafe impl Value for u8 {
+unsafe impl Layout for u8 {
   const SIZE: usize = 1;
+}
 
+unsafe impl Value for u8 {
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
+}
+
+unsafe impl Layout for u16 {
+  const SIZE: usize = 2;
 }
 
 unsafe impl Value for u16 {
-  const SIZE: usize = 2;
-
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
+}
+
+unsafe impl Layout for u32 {
+  const SIZE: usize = 4;
 }
 
 unsafe impl Value for u32 {
-  const SIZE: usize = 4;
-
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
+}
+
+unsafe impl Layout for u64 {
+  const SIZE: usize = 8;
 }
 
 unsafe impl Value for u64 {
-  const SIZE: usize = 8;
-
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
+}
+
+unsafe impl Layout for f32 {
+  const SIZE: usize = 4;
 }
 
 unsafe impl Value for f32 {
-  const SIZE: usize = 4;
-
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
+}
+
+unsafe impl Layout for f64 {
+  const SIZE: usize = 8;
 }
 
 unsafe impl Value for f64 {
-  const SIZE: usize = 8;
-
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { rt::get_bytes(buf, ofs) })
+    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
   }
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { rt::set_bytes(buf, ofs, value.to_le_bytes()) }
+    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
   }
 }
 
-unsafe impl Value for bool {
+unsafe impl Layout for bool {
   const SIZE: usize = 1;
+}
 
+unsafe impl Value for bool {
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     0 != unsafe { u8::get(buf, ofs) }
@@ -473,12 +488,17 @@ unsafe impl Value for bool {
   }
 }
 
-unsafe impl<T> Value for Option<T>
+unsafe impl<T> Layout for Option<T>
 where
   T: Value
 {
   const SIZE: usize = 1 + T::SIZE;
+}
 
+unsafe impl<T> Value for Option<T>
+where
+  T: Value
+{
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     if 0 == unsafe { u8::get(buf, ofs) } {
@@ -502,13 +522,19 @@ where
   }
 }
 
-unsafe impl<T, E> Value for Result<T, E>
+unsafe impl<T, E> Layout for Result<T, E>
 where
   T: Value,
   E: Value
 {
   const SIZE: usize = 1 + max(T::SIZE, E::SIZE);
+}
 
+unsafe impl<T, E> Value for Result<T, E>
+where
+  T: Value,
+  E: Value
+{
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     if 0 == unsafe { u8::get(buf, ofs) } {
@@ -533,12 +559,17 @@ where
   }
 }
 
-unsafe impl<T, const N: usize> Value for [T; N]
+unsafe impl<T, const N: usize> Layout for [T; N]
 where
   T: Value
 {
   const SIZE: usize = T::SIZE * N;
+}
 
+unsafe impl<T, const N: usize> Value for [T; N]
+where
+  T: Value
+{
   #[inline(always)]
   unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
     core::array::from_fn(|_| unsafe { T::get(buf, ofs) })
@@ -546,9 +577,7 @@ where
 
   #[inline(always)]
   unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    for &item in value.iter() {
-      unsafe { T::set(buf, ofs, item) }
-    }
+    value.iter().for_each(|&x| unsafe { T::set(buf, ofs, x) });
   }
 }
 

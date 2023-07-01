@@ -1,5 +1,5 @@
+use crate::Layout;
 use crate::Object;
-use crate::SizedObject;
 use crate::Value;
 
 #[inline(always)]
@@ -62,8 +62,16 @@ pub unsafe fn set_bytes<const N: usize>(buf: &mut [u8], ofs: &mut usize, value: 
 }
 
 #[inline(always)]
-pub unsafe fn get_u32(buf: &[u8], ofs: usize) -> u32 {
-  unsafe { u32::get(buf, &mut {ofs}) }
+pub unsafe fn get_offset(buf: &[u8], ofs: usize) -> usize {
+  (unsafe { u32::from_le_bytes(*get_array(buf, ofs)) }) as usize
+}
+
+#[inline(always)]
+pub const fn size_of<T>() -> usize
+where
+  T: ?Sized + Layout
+{
+  T::SIZE
 }
 
 #[inline(always)]
@@ -80,20 +88,4 @@ where
   T: ?Sized + Object
 {
   unsafe { T::new(get_slice(buf, lo, hi)) }
-}
-
-#[inline(always)]
-pub const fn size_of_value<T>() -> usize
-where
-  T: Value
-{
-  T::SIZE
-}
-
-#[inline(always)]
-pub const fn size_of_object<T>() -> usize
-where
-  T: ?Sized + SizedObject
-{
-  T::SIZE
 }
