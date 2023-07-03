@@ -4,9 +4,7 @@ pub mod internal;
 
 use crate::internal::get_bytes;
 use crate::internal::get_slice;
-use crate::internal::get_slice_mut;
 use crate::internal::pop_slice;
-use crate::internal::pop_slice_mut;
 use crate::internal::set_bytes;
 
 pub unsafe trait Layout {
@@ -48,12 +46,89 @@ pub unsafe trait Object {
   /// ???
 
   unsafe fn new(buf: &[u8]) -> &Self;
+}
 
-  /// SAFETY:
-  ///
-  /// ???
+/// An array of `N` values.
 
-  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self;
+#[repr(transparent)]
+pub struct ArrayVN<T, const N: usize>
+where
+  T: Value
+{
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
+}
+
+unsafe impl<T, const N: usize> Object for ArrayVN<T, N>
+where
+  T: Value
+{
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute(buf) }
+  }
+}
+
+impl<T, const N: usize> ArrayVN<T, N>
+where
+  T: Value
+{
+  const STRIDE: usize = T::SIZE;
+
+  #[inline(always)]
+  pub unsafe fn get_unchecked(&self, index: usize) -> T {
+    let i = Self::STRIDE * index;
+    unsafe { T::get(&self.buf, &mut {i}) }
+  }
+
+  #[inline(always)]
+  pub fn get(&self, index: usize) -> T {
+    if index >= N { panic_out_of_bounds() }
+    unsafe { self.get_unchecked(index) }
+  }
+
+  #[inline(always)]
+  pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
+    let i = Self::STRIDE * index;
+    unsafe { T::set(&mut self.buf, &mut {i}, value) }
+  }
+
+  #[inline(always)]
+  pub fn set(&mut self, index: usize, value: T) {
+    if index >= N { panic_out_of_bounds() }
+    unsafe { self.set_unchecked(index, value) }
+  }
+
+  #[inline(always)]
+  pub fn iter(&self) -> impl '_ + Iterator<Item = T> {
+    IterArrayVN { array: self, index: 0 }
+  }
+}
+
+struct IterArrayVN<'a, T, const N: usize>
+where
+  T: Value
+{
+  array: &'a ArrayVN<T, N>,
+  index: usize,
+}
+
+impl<'a, T, const N: usize> Iterator for IterArrayVN<'a, T, N>
+where
+  T: Value
+{
+  type Item = T;
+
+  #[inline(always)]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index == N {
+      None
+    } else {
+      let x = unsafe { self.array.get_unchecked(self.index) };
+      self.index += 1;
+      Some(x)
+    }
+  }
 }
 
 /// An array of values.
@@ -75,11 +150,6 @@ where
 {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
-  }
-
-  #[inline(always)]
-  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
     unsafe { core::mem::transmute(buf) }
   }
 }
@@ -106,18 +176,6 @@ where
 
   /// ???
   ///
-  /// PANICS:
-  ///
-  /// On out-of-bounds access.
-
-  #[inline(always)]
-  pub fn get(&self, index: usize) -> T {
-    if index >= self.len() { panic_out_of_bounds() }
-    unsafe { self.get_unchecked(index) }
-  }
-
-  /// ???
-  ///
   /// SAFETY:
   ///
   /// ???
@@ -135,9 +193,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn set(&mut self, index: usize, value: T) {
+  pub fn get(&self, index: usize) -> T {
     if index >= self.len() { panic_out_of_bounds() }
-    unsafe { self.set_unchecked(index, value) }
+    unsafe { self.get_unchecked(index) }
   }
 
   /// ???
@@ -150,6 +208,18 @@ where
   pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
     let i = Self::STRIDE * index;
     unsafe { T::set(&mut self.buf, &mut {i}, value) }
+  }
+
+  /// ???
+  ///
+  /// PANICS:
+  ///
+  /// On out-of-bounds access.
+
+  #[inline(always)]
+  pub fn set(&mut self, index: usize, value: T) {
+    if index >= self.len() { panic_out_of_bounds() }
+    unsafe { self.set_unchecked(index, value) }
   }
 
   /// ???
@@ -189,6 +259,90 @@ where
   }
 }
 
+#[repr(transparent)]
+pub struct ArrayON<T, const N: usize>
+where
+  T: ?Sized + Layout + Object
+{
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
+}
+
+unsafe impl<T, const N: usize> Object for ArrayON<T, N>
+where
+  T: ?Sized + Layout + Object
+{
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute(buf) }
+  }
+}
+
+impl<T, const N: usize> ArrayON<T, N>
+where
+  T: ?Sized + Layout + Object
+{
+  const STRIDE: usize = T::SIZE;
+
+  /// ???
+  ///
+  /// SAFETY:
+  ///
+  /// ???
+
+  #[inline(always)]
+  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+    let i = Self::STRIDE * index;
+    let j = i + Self::STRIDE;
+    unsafe { T::new(get_slice(&self.buf, i, j)) }
+  }
+
+  /// ???
+  ///
+  /// PANICS:
+  ///
+  /// On out-of-bounds access.
+
+  #[inline(always)]
+  pub fn get(&self, index: usize) -> &T {
+    if index >= N { panic_out_of_bounds() }
+    unsafe { self.get_unchecked(index) }
+  }
+
+  /// ???
+
+  #[inline(always)]
+  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
+    IterArrayON { array: self, index: 0 }
+  }
+}
+
+struct IterArrayON<'a, T, const N: usize>
+where
+  T: 'a + ?Sized + Layout + Object
+{
+  array: &'a ArrayON<T, N>,
+  index: usize,
+}
+
+impl<'a, T, const N: usize> Iterator for IterArrayON<'a, T, N>
+where
+  T: 'a + ?Sized + Layout + Object
+{
+  type Item = &'a T;
+
+  #[inline(always)]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index == N {
+      None
+    } else {
+      let x = unsafe { self.array.get_unchecked(self.index) };
+      self.index += 1;
+      Some(x)
+    }
+  }
+}
+
 /// An array of sized objects.
 ///
 /// Supports O(1) bounds-checked access by index.
@@ -208,11 +362,6 @@ where
 {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
-  }
-
-  #[inline(always)]
-  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
     unsafe { core::mem::transmute(buf) }
   }
 }
@@ -239,20 +388,6 @@ where
 
   /// ???
   ///
-  /// PANICS:
-  ///
-  /// On out-of-bounds access.
-
-  #[inline(always)]
-  pub fn get(&self, index: usize) -> &T {
-    if index >= self.len() { panic_out_of_bounds() }
-    let i = Self::STRIDE * index;
-    let j = i + Self::STRIDE;
-    unsafe { T::new(get_slice(&self.buf, i, j)) }
-  }
-
-  /// ???
-  ///
   /// SAFETY:
   ///
   /// ???
@@ -271,22 +406,9 @@ where
   /// On out-of-bounds access.
 
   #[inline(always)]
-  pub fn get_mut(&mut self, index: usize) -> &mut T {
+  pub fn get(&self, index: usize) -> &T {
     if index >= self.len() { panic_out_of_bounds() }
-    unsafe { self.get_unchecked_mut(index) }
-  }
-
-  /// ???
-  ///
-  /// SAFETY:
-  ///
-  /// ???
-
-  #[inline(always)]
-  pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
-    let i = Self::STRIDE * index;
-    let j = i + Self::STRIDE;
-    unsafe { T::new_mut(get_slice_mut(&mut self.buf, i, j)) }
+    unsafe { self.get_unchecked(index) }
   }
 
   /// ???
@@ -296,16 +418,6 @@ where
     IterArrayO {
       _pd: core::marker::PhantomData,
       buf: &self.buf,
-    }
-  }
-
-  /// ???
-
-  #[inline(always)]
-  pub fn iter_mut(&mut self) -> impl '_ + Iterator<Item = &'_ mut T> {
-    IterMutArrayO {
-      _pd: core::marker::PhantomData,
-      buf: &mut self.buf,
     }
   }
 }
@@ -331,32 +443,6 @@ where
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
       let x = unsafe { T::new(p) };
-      Some(x)
-    }
-  }
-}
-
-struct IterMutArrayO<'a, T>
-where
-  T: 'a + ?Sized + Layout + Object
-{
-  _pd: core::marker::PhantomData<fn(T) -> T>,
-  buf: &'a mut [u8],
-}
-
-impl<'a, T> Iterator for IterMutArrayO<'a, T>
-where
-  T: 'a + ?Sized + Layout + Object
-{
-  type Item = &'a mut T;
-
-  #[inline(always)]
-  fn next(&mut self) -> Option<Self::Item> {
-    if self.buf.is_empty() {
-      None
-    } else {
-      let p = unsafe { pop_slice_mut(&mut self.buf, ArrayO::<T>::STRIDE) };
-      let x = unsafe { T::new_mut(p) };
       Some(x)
     }
   }

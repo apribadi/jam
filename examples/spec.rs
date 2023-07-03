@@ -31,11 +31,6 @@ unsafe impl jam::Object for Foo {
   unsafe fn new(buf: &[u8]) -> &Self {
     unsafe { core::mem::transmute(buf) }
   }
-
-  #[inline(always)]
-  unsafe fn new_mut(buf: &mut [u8]) -> &mut Self {
-    unsafe { core::mem::transmute(buf) }
-  }
 }
 
 // struct Bar
@@ -93,8 +88,8 @@ impl Bar {
   }
 }
 
-pub fn foo(x: &jam::ArrayV<u32>, i: usize) -> u32 {
-  x.get(i)
+pub fn foo(x: &jam::ArrayVN<u32, 10>) -> u32 {
+  x.get(1) + x.get(3)
 }
 
 pub fn bar(x: &jam::ArrayV<u32>) -> u32 {
