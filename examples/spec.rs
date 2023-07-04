@@ -22,7 +22,7 @@ impl Foo {
   }
 }
 
-unsafe impl jam::Layout for Foo {
+unsafe impl jam::SizeOf for Foo {
   const SIZE: usize = Self::OFS2;
 }
 

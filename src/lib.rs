@@ -7,7 +7,7 @@ use crate::internal::get_slice;
 use crate::internal::pop_slice;
 use crate::internal::set_bytes;
 
-pub unsafe trait Layout {
+pub unsafe trait SizeOf {
   const SIZE: usize;
 }
 
@@ -20,7 +20,7 @@ pub unsafe trait Layout {
 ///
 /// - ???
 
-pub unsafe trait Value: Copy + Layout {
+pub unsafe trait Value: Copy + SizeOf {
   /// SAFETY:
   ///
   /// ???
@@ -118,6 +118,90 @@ where
   T: Value
 {
   type Item = T;
+
+  #[inline(always)]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index == N {
+      None
+    } else {
+      let x = unsafe { self.array.get_unchecked(self.index) };
+      self.index += 1;
+      Some(x)
+    }
+  }
+}
+
+#[repr(transparent)]
+pub struct ArrayON<T, const N: usize>
+where
+  T: ?Sized + SizeOf + Object
+{
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
+}
+
+unsafe impl<T, const N: usize> Object for ArrayON<T, N>
+where
+  T: ?Sized + SizeOf + Object
+{
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute(buf) }
+  }
+}
+
+impl<T, const N: usize> ArrayON<T, N>
+where
+  T: ?Sized + SizeOf + Object
+{
+  const STRIDE: usize = T::SIZE;
+
+  /// ???
+  ///
+  /// SAFETY:
+  ///
+  /// ???
+
+  #[inline(always)]
+  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+    let i = Self::STRIDE * index;
+    let j = i + Self::STRIDE;
+    unsafe { T::new(get_slice(&self.buf, i, j)) }
+  }
+
+  /// ???
+  ///
+  /// PANICS:
+  ///
+  /// On out-of-bounds access.
+
+  #[inline(always)]
+  pub fn get(&self, index: usize) -> &T {
+    if index >= N { panic_out_of_bounds() }
+    unsafe { self.get_unchecked(index) }
+  }
+
+  /// ???
+
+  #[inline(always)]
+  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
+    IterArrayON { array: self, index: 0 }
+  }
+}
+
+struct IterArrayON<'a, T, const N: usize>
+where
+  T: 'a + ?Sized + SizeOf + Object
+{
+  array: &'a ArrayON<T, N>,
+  index: usize,
+}
+
+impl<'a, T, const N: usize> Iterator for IterArrayON<'a, T, N>
+where
+  T: 'a + ?Sized + SizeOf + Object
+{
+  type Item = &'a T;
 
   #[inline(always)]
   fn next(&mut self) -> Option<Self::Item> {
@@ -259,90 +343,6 @@ where
   }
 }
 
-#[repr(transparent)]
-pub struct ArrayON<T, const N: usize>
-where
-  T: ?Sized + Layout + Object
-{
-  _pd: core::marker::PhantomData<fn(T) -> T>,
-  buf: [u8],
-}
-
-unsafe impl<T, const N: usize> Object for ArrayON<T, N>
-where
-  T: ?Sized + Layout + Object
-{
-  #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
-  }
-}
-
-impl<T, const N: usize> ArrayON<T, N>
-where
-  T: ?Sized + Layout + Object
-{
-  const STRIDE: usize = T::SIZE;
-
-  /// ???
-  ///
-  /// SAFETY:
-  ///
-  /// ???
-
-  #[inline(always)]
-  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-    let i = Self::STRIDE * index;
-    let j = i + Self::STRIDE;
-    unsafe { T::new(get_slice(&self.buf, i, j)) }
-  }
-
-  /// ???
-  ///
-  /// PANICS:
-  ///
-  /// On out-of-bounds access.
-
-  #[inline(always)]
-  pub fn get(&self, index: usize) -> &T {
-    if index >= N { panic_out_of_bounds() }
-    unsafe { self.get_unchecked(index) }
-  }
-
-  /// ???
-
-  #[inline(always)]
-  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
-    IterArrayON { array: self, index: 0 }
-  }
-}
-
-struct IterArrayON<'a, T, const N: usize>
-where
-  T: 'a + ?Sized + Layout + Object
-{
-  array: &'a ArrayON<T, N>,
-  index: usize,
-}
-
-impl<'a, T, const N: usize> Iterator for IterArrayON<'a, T, N>
-where
-  T: 'a + ?Sized + Layout + Object
-{
-  type Item = &'a T;
-
-  #[inline(always)]
-  fn next(&mut self) -> Option<Self::Item> {
-    if self.index == N {
-      None
-    } else {
-      let x = unsafe { self.array.get_unchecked(self.index) };
-      self.index += 1;
-      Some(x)
-    }
-  }
-}
-
 /// An array of sized objects.
 ///
 /// Supports O(1) bounds-checked access by index.
@@ -350,7 +350,7 @@ where
 #[repr(transparent)]
 pub struct ArrayO<T>
 where
-  T: ?Sized + Layout + Object
+  T: ?Sized + SizeOf + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: [u8],
@@ -358,7 +358,7 @@ where
 
 unsafe impl<T> Object for ArrayO<T>
 where
-  T: ?Sized + Layout + Object
+  T: ?Sized + SizeOf + Object
 {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
@@ -368,7 +368,7 @@ where
 
 impl<T> ArrayO<T>
 where
-  T: ?Sized + Layout + Object
+  T: ?Sized + SizeOf + Object
 {
   const STRIDE: usize = max(T::SIZE, 1);
 
@@ -424,7 +424,7 @@ where
 
 struct IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + Layout + Object
+  T: 'a + ?Sized + SizeOf + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: &'a [u8],
@@ -432,7 +432,7 @@ where
 
 impl<'a, T> Iterator for IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + Layout + Object
+  T: 'a + ?Sized + SizeOf + Object
 {
   type Item = &'a T;
 
@@ -448,7 +448,7 @@ where
   }
 }
 
-unsafe impl Layout for () {
+unsafe impl SizeOf for () {
   const SIZE: usize = 0;
 }
 
@@ -462,7 +462,7 @@ unsafe impl Value for () {
   }
 }
 
-unsafe impl Layout for u8 {
+unsafe impl SizeOf for u8 {
   const SIZE: usize = 1;
 }
 
@@ -478,7 +478,7 @@ unsafe impl Value for u8 {
   }
 }
 
-unsafe impl Layout for u16 {
+unsafe impl SizeOf for u16 {
   const SIZE: usize = 2;
 }
 
@@ -494,7 +494,7 @@ unsafe impl Value for u16 {
   }
 }
 
-unsafe impl Layout for u32 {
+unsafe impl SizeOf for u32 {
   const SIZE: usize = 4;
 }
 
@@ -510,7 +510,7 @@ unsafe impl Value for u32 {
   }
 }
 
-unsafe impl Layout for u64 {
+unsafe impl SizeOf for u64 {
   const SIZE: usize = 8;
 }
 
@@ -526,7 +526,7 @@ unsafe impl Value for u64 {
   }
 }
 
-unsafe impl Layout for f32 {
+unsafe impl SizeOf for f32 {
   const SIZE: usize = 4;
 }
 
@@ -542,7 +542,7 @@ unsafe impl Value for f32 {
   }
 }
 
-unsafe impl Layout for f64 {
+unsafe impl SizeOf for f64 {
   const SIZE: usize = 8;
 }
 
@@ -558,7 +558,7 @@ unsafe impl Value for f64 {
   }
 }
 
-unsafe impl Layout for bool {
+unsafe impl SizeOf for bool {
   const SIZE: usize = 1;
 }
 
@@ -574,7 +574,7 @@ unsafe impl Value for bool {
   }
 }
 
-unsafe impl<T> Layout for Option<T>
+unsafe impl<T> SizeOf for Option<T>
 where
   T: Value
 {
@@ -608,7 +608,7 @@ where
   }
 }
 
-unsafe impl<T, E> Layout for Result<T, E>
+unsafe impl<T, E> SizeOf for Result<T, E>
 where
   T: Value,
   E: Value
@@ -645,7 +645,7 @@ where
   }
 }
 
-unsafe impl<T, const N: usize> Layout for [T; N]
+unsafe impl<T, const N: usize> SizeOf for [T; N]
 where
   T: Value
 {

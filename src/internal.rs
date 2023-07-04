@@ -1,5 +1,5 @@
-use crate::Layout;
 use crate::Object;
+use crate::SizeOf;
 use crate::Value;
 
 #[inline(always)]
@@ -69,7 +69,7 @@ pub unsafe fn get_offset(buf: &[u8], ofs: usize) -> usize {
 #[inline(always)]
 pub const fn size_of<T>() -> usize
 where
-  T: ?Sized + Layout
+  T: ?Sized + SizeOf
 {
   T::SIZE
 }
