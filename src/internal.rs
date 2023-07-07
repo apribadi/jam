@@ -1,5 +1,4 @@
 use crate::Object;
-use crate::SizeOf;
 use crate::Value;
 
 #[inline(always)]
@@ -48,44 +47,63 @@ pub unsafe fn pop_slice_mut<'a>(buf: &mut &'a mut [u8], ofs: usize) -> &'a mut [
 }
 
 #[inline(always)]
-pub unsafe fn get_bytes<const N: usize>(buf: &[u8], ofs: &mut usize) -> [u8; N] {
-  let p = unsafe { get_array(buf, *ofs) };
-  *ofs += N;
-  *p
+pub unsafe fn get_bytes<const N: usize>(ptr: &mut *const u8) -> [u8; N] {
+  let p = *ptr;
+  let x = unsafe { core::ptr::read(p as *const [u8; N]) };
+  let p = unsafe { p.add(N) };
+  *ptr = p;
+  x
 }
 
 #[inline(always)]
-pub unsafe fn set_bytes<const N: usize>(buf: &mut [u8], ofs: &mut usize, value: [u8; N]) {
-  let p = unsafe { get_array_mut(buf, *ofs) };
-  *ofs += N;
-  *p = value;
+pub unsafe fn set_bytes<const N: usize>(ptr: &mut *mut u8, value: [u8; N]) {
+  let p = *ptr;
+  unsafe { core::ptr::write(p as *mut [u8; N], value) };
+  let p = unsafe { p.add(N) };
+  *ptr = p;
+}
+
+#[inline(always)]
+pub unsafe fn get_field<T>(buf: &[u8], ofs: usize) -> T
+where
+  T: Value
+{
+  let p = buf.as_ptr();
+  let p = unsafe { p.add(ofs) };
+  unsafe { T::get(&mut {p}) }
+}
+
+#[inline(always)]
+pub unsafe fn set_field<T>(buf: &mut [u8], ofs: usize, value: T)
+where
+  T: Value
+{
+  let p = buf.as_mut_ptr();
+  let p = unsafe { p.add(ofs) };
+  unsafe { T::set(&mut {p}, value) }
+}
+
+#[inline(always)]
+pub const fn field_size<T>() -> usize
+where
+  T: Value
+{
+  T::FIELD_SIZE
 }
 
 #[inline(always)]
 pub unsafe fn get_offset(buf: &[u8], ofs: usize) -> usize {
-  (unsafe { u32::from_le_bytes(*get_array(buf, ofs)) }) as usize
-}
-
-#[inline(always)]
-pub const fn size_of<T>() -> usize
-where
-  T: ?Sized + SizeOf
-{
-  T::SIZE
-}
-
-#[inline(always)]
-pub unsafe fn get_value<T>(buf: &[u8], ofs: &mut usize) -> T
-where
-  T: Value
-{
-  unsafe { T::get(buf, ofs) }
+  let n = unsafe { get_field::<u32>(buf, ofs) };
+  n as usize
 }
 
 #[inline(always)]
 pub unsafe fn get_object<T>(buf: &[u8], lo: usize, hi: usize) -> &T
 where
-  T: ?Sized + Object
+  T: Object + ?Sized
 {
-  unsafe { T::new(get_slice(buf, lo, hi)) }
+  let p = buf.as_ptr();
+  let p = unsafe { p.add(lo) };
+  let n = hi - lo;
+  unsafe { T::new(p, n) }
 }

@@ -3,13 +3,16 @@
 pub mod internal;
 
 use crate::internal::get_bytes;
-use crate::internal::get_slice;
+use crate::internal::get_field;
+use crate::internal::get_object;
 use crate::internal::pop_slice;
 use crate::internal::set_bytes;
+use crate::internal::set_field;
 
-pub unsafe trait SizeOf {
-  const SIZE: usize;
-}
+/*
+use crate::internal::get_slice;
+use crate::internal::pop_slice;
+*/
 
 /// A `Value` is ...???
 ///
@@ -20,18 +23,20 @@ pub unsafe trait SizeOf {
 ///
 /// - ???
 
-pub unsafe trait Value: Copy + SizeOf {
-  /// SAFETY:
-  ///
-  /// ???
-
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self;
+pub unsafe trait Value: Copy {
+  const FIELD_SIZE: usize;
 
   /// SAFETY:
   ///
   /// ???
 
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self);
+  unsafe fn get(ptr: &mut *const u8) -> Self;
+
+  /// SAFETY:
+  ///
+  /// ???
+
+  unsafe fn set(ptr: &mut *mut u8, value: Self);
 }
 
 /// An `Object` is ...???
@@ -45,179 +50,8 @@ pub unsafe trait Object {
   ///
   /// ???
 
-  unsafe fn new(buf: &[u8]) -> &Self;
+  unsafe fn new<'a>(ptr: *const u8, len: usize) -> &'a Self;
 }
-
-/// An array of `N` values.
-
-#[repr(transparent)]
-pub struct ArrayVN<T, const N: usize>
-where
-  T: Value
-{
-  _pd: core::marker::PhantomData<fn(T) -> T>,
-  buf: [u8],
-}
-
-unsafe impl<T, const N: usize> Object for ArrayVN<T, N>
-where
-  T: Value
-{
-  #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
-  }
-}
-
-impl<T, const N: usize> ArrayVN<T, N>
-where
-  T: Value
-{
-  const STRIDE: usize = T::SIZE;
-
-  #[inline(always)]
-  pub unsafe fn get_unchecked(&self, index: usize) -> T {
-    let i = Self::STRIDE * index;
-    unsafe { T::get(&self.buf, &mut {i}) }
-  }
-
-  #[inline(always)]
-  pub fn get(&self, index: usize) -> T {
-    if index >= N { panic_out_of_bounds() }
-    unsafe { self.get_unchecked(index) }
-  }
-
-  #[inline(always)]
-  pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
-    let i = Self::STRIDE * index;
-    unsafe { T::set(&mut self.buf, &mut {i}, value) }
-  }
-
-  #[inline(always)]
-  pub fn set(&mut self, index: usize, value: T) {
-    if index >= N { panic_out_of_bounds() }
-    unsafe { self.set_unchecked(index, value) }
-  }
-
-  #[inline(always)]
-  pub fn iter(&self) -> impl '_ + Iterator<Item = T> {
-    IterArrayVN { array: self, index: 0 }
-  }
-}
-
-struct IterArrayVN<'a, T, const N: usize>
-where
-  T: Value
-{
-  array: &'a ArrayVN<T, N>,
-  index: usize,
-}
-
-impl<'a, T, const N: usize> Iterator for IterArrayVN<'a, T, N>
-where
-  T: Value
-{
-  type Item = T;
-
-  #[inline(always)]
-  fn next(&mut self) -> Option<Self::Item> {
-    if self.index == N {
-      None
-    } else {
-      let x = unsafe { self.array.get_unchecked(self.index) };
-      self.index += 1;
-      Some(x)
-    }
-  }
-}
-
-#[repr(transparent)]
-pub struct ArrayON<T, const N: usize>
-where
-  T: ?Sized + SizeOf + Object
-{
-  _pd: core::marker::PhantomData<fn(T) -> T>,
-  buf: [u8],
-}
-
-unsafe impl<T, const N: usize> Object for ArrayON<T, N>
-where
-  T: ?Sized + SizeOf + Object
-{
-  #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
-  }
-}
-
-impl<T, const N: usize> ArrayON<T, N>
-where
-  T: ?Sized + SizeOf + Object
-{
-  const STRIDE: usize = T::SIZE;
-
-  /// ???
-  ///
-  /// SAFETY:
-  ///
-  /// ???
-
-  #[inline(always)]
-  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-    let i = Self::STRIDE * index;
-    let j = i + Self::STRIDE;
-    unsafe { T::new(get_slice(&self.buf, i, j)) }
-  }
-
-  /// ???
-  ///
-  /// PANICS:
-  ///
-  /// On out-of-bounds access.
-
-  #[inline(always)]
-  pub fn get(&self, index: usize) -> &T {
-    if index >= N { panic_out_of_bounds() }
-    unsafe { self.get_unchecked(index) }
-  }
-
-  /// ???
-
-  #[inline(always)]
-  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
-    IterArrayON { array: self, index: 0 }
-  }
-}
-
-struct IterArrayON<'a, T, const N: usize>
-where
-  T: 'a + ?Sized + SizeOf + Object
-{
-  array: &'a ArrayON<T, N>,
-  index: usize,
-}
-
-impl<'a, T, const N: usize> Iterator for IterArrayON<'a, T, N>
-where
-  T: 'a + ?Sized + SizeOf + Object
-{
-  type Item = &'a T;
-
-  #[inline(always)]
-  fn next(&mut self) -> Option<Self::Item> {
-    if self.index == N {
-      None
-    } else {
-      let x = unsafe { self.array.get_unchecked(self.index) };
-      self.index += 1;
-      Some(x)
-    }
-  }
-}
-
-/// An array of values.
-///
-/// Supports O(1) bounds-checked access by index.
 
 #[repr(transparent)]
 pub struct ArrayV<T>
@@ -233,8 +67,8 @@ where
   T: Value
 {
   #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
+  unsafe fn new<'a>(ptr: *const u8, len: usize) -> &'a Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(core::slice::from_raw_parts(ptr, len)) }
   }
 }
 
@@ -242,7 +76,7 @@ impl<T> ArrayV<T>
 where
   T: Value
 {
-  const STRIDE: usize = max(T::SIZE, 1);
+  const STRIDE: usize = max(T::FIELD_SIZE, 1);
 
   /// ???
 
@@ -267,7 +101,7 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> T {
     let i = Self::STRIDE * index;
-    unsafe { T::get(&self.buf, &mut {i}) }
+    unsafe { get_field(&self.buf, i) }
   }
 
   /// ???
@@ -291,7 +125,7 @@ where
   #[inline(always)]
   pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
     let i = Self::STRIDE * index;
-    unsafe { T::set(&mut self.buf, &mut {i}, value) }
+    unsafe { set_field(&mut self.buf, i, value) }
   }
 
   /// ???
@@ -337,20 +171,16 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
-      let x = unsafe { T::get(p, &mut {0}) };
+      let x = unsafe { get_field(p, 0) };
       Some(x)
     }
   }
 }
 
-/// An array of sized objects.
-///
-/// Supports O(1) bounds-checked access by index.
-
 #[repr(transparent)]
 pub struct ArrayO<T>
 where
-  T: ?Sized + SizeOf + Object
+  T: Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: [u8],
@@ -358,19 +188,20 @@ where
 
 unsafe impl<T> Object for ArrayO<T>
 where
-  T: ?Sized + SizeOf + Object
+  T: Object
 {
   #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute(buf) }
+  unsafe fn new<'a>(ptr: *const u8, len: usize ) -> &'a Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(core::slice::from_raw_parts(ptr, len)) }
   }
 }
 
 impl<T> ArrayO<T>
 where
-  T: ?Sized + SizeOf + Object
+  T: Object
 {
-  const STRIDE: usize = max(T::SIZE, 1);
+  const ELT_SIZE: usize = core::mem::size_of::<T>();
+  const STRIDE: usize = max(Self::ELT_SIZE, 1);
 
   /// ???
 
@@ -395,8 +226,8 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = Self::STRIDE * index;
-    let j = i + Self::STRIDE;
-    unsafe { T::new(get_slice(&self.buf, i, j)) }
+    let j = i + Self::ELT_SIZE;
+    unsafe { get_object(&self.buf, i, j) }
   }
 
   /// ???
@@ -424,7 +255,7 @@ where
 
 struct IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizeOf + Object
+  T: 'a + Object
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: &'a [u8],
@@ -432,7 +263,7 @@ where
 
 impl<'a, T> Iterator for IterArrayO<'a, T>
 where
-  T: 'a + ?Sized + SizeOf + Object
+  T: 'a + Object
 {
   type Item = &'a T;
 
@@ -442,91 +273,71 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
-      let x = unsafe { T::new(p) };
+      let x = unsafe { get_object(p, 0, ArrayO::<T>::ELT_SIZE) };
       Some(x)
     }
   }
 }
 
-unsafe impl SizeOf for () {
-  const SIZE: usize = 0;
-}
-
-unsafe impl Value for () {
-  #[inline(always)]
-  unsafe fn get(_: &[u8], _: &mut usize) -> Self {
-  }
-
-  #[inline(always)]
-  unsafe fn set(_: &mut [u8], _: &mut usize, _: Self) {
-  }
-}
-
-unsafe impl SizeOf for u8 {
-  const SIZE: usize = 1;
-}
-
 unsafe impl Value for u8 {
+  const FIELD_SIZE: usize = 1;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
   }
-}
-
-unsafe impl SizeOf for u16 {
-  const SIZE: usize = 2;
 }
 
 unsafe impl Value for u16 {
+  const FIELD_SIZE: usize = 2;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
   }
-}
-
-unsafe impl SizeOf for u32 {
-  const SIZE: usize = 4;
 }
 
 unsafe impl Value for u32 {
+  const FIELD_SIZE: usize = 4;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
   }
-}
-
-unsafe impl SizeOf for u64 {
-  const SIZE: usize = 8;
 }
 
 unsafe impl Value for u64 {
+  const FIELD_SIZE: usize = 8;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
   }
 }
 
-unsafe impl SizeOf for f32 {
+/*
+
+unsafe impl Layout for f32 {
   const SIZE: usize = 4;
 }
 
@@ -542,7 +353,7 @@ unsafe impl Value for f32 {
   }
 }
 
-unsafe impl SizeOf for f64 {
+unsafe impl Layout for f64 {
   const SIZE: usize = 8;
 }
 
@@ -558,7 +369,7 @@ unsafe impl Value for f64 {
   }
 }
 
-unsafe impl SizeOf for bool {
+unsafe impl Layout for bool {
   const SIZE: usize = 1;
 }
 
@@ -574,7 +385,7 @@ unsafe impl Value for bool {
   }
 }
 
-unsafe impl<T> SizeOf for Option<T>
+unsafe impl<T> Layout for Option<T>
 where
   T: Value
 {
@@ -608,7 +419,7 @@ where
   }
 }
 
-unsafe impl<T, E> SizeOf for Result<T, E>
+unsafe impl<T, E> Layout for Result<T, E>
 where
   T: Value,
   E: Value
@@ -645,7 +456,7 @@ where
   }
 }
 
-unsafe impl<T, const N: usize> SizeOf for [T; N]
+unsafe impl<T, const N: usize> Layout for [T; N]
 where
   T: Value
 {
@@ -666,6 +477,7 @@ where
     value.iter().for_each(|&x| unsafe { T::set(buf, ofs, x) });
   }
 }
+*/
 
 #[inline(never)]
 #[cold]
