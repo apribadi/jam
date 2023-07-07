@@ -64,7 +64,7 @@ pub unsafe fn set_bytes<const N: usize>(ptr: &mut *mut u8, value: [u8; N]) {
 }
 
 #[inline(always)]
-pub unsafe fn get_field<T>(buf: &[u8], ofs: usize) -> T
+pub unsafe fn get_value<T>(buf: &[u8], ofs: usize) -> T
 where
   T: Value
 {
@@ -74,7 +74,7 @@ where
 }
 
 #[inline(always)]
-pub unsafe fn set_field<T>(buf: &mut [u8], ofs: usize, value: T)
+pub unsafe fn set_value<T>(buf: &mut [u8], ofs: usize, value: T)
 where
   T: Value
 {
@@ -84,26 +84,23 @@ where
 }
 
 #[inline(always)]
-pub const fn field_size<T>() -> usize
+pub const fn stride_of<T>() -> usize
 where
   T: Value
 {
-  T::FIELD_SIZE
+  T::STRIDE
 }
 
 #[inline(always)]
 pub unsafe fn get_offset(buf: &[u8], ofs: usize) -> usize {
-  let n = unsafe { get_field::<u32>(buf, ofs) };
+  let n = unsafe { get_value::<u32>(buf, ofs) };
   n as usize
 }
 
 #[inline(always)]
-pub unsafe fn get_object<T>(buf: &[u8], lo: usize, hi: usize) -> &T
+pub unsafe fn get_field<T>(buf: &[u8], lo: usize, hi: usize) -> &T
 where
   T: Object + ?Sized
 {
-  let p = buf.as_ptr();
-  let p = unsafe { p.add(lo) };
-  let n = hi - lo;
-  unsafe { T::new(p, n) }
+  unsafe { T::new(get_slice(buf, lo, hi)) }
 }

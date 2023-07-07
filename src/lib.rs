@@ -4,10 +4,10 @@ pub mod internal;
 
 use crate::internal::get_bytes;
 use crate::internal::get_field;
-use crate::internal::get_object;
+use crate::internal::get_value;
 use crate::internal::pop_slice;
 use crate::internal::set_bytes;
-use crate::internal::set_field;
+use crate::internal::set_value;
 
 /*
 use crate::internal::get_slice;
@@ -24,7 +24,7 @@ use crate::internal::pop_slice;
 /// - ???
 
 pub unsafe trait Value: Copy {
-  const FIELD_SIZE: usize;
+  const STRIDE: usize;
 
   /// SAFETY:
   ///
@@ -50,7 +50,7 @@ pub unsafe trait Object {
   ///
   /// ???
 
-  unsafe fn new<'a>(ptr: *const u8, len: usize) -> &'a Self;
+  unsafe fn new(buf: &[u8]) -> &Self;
 }
 
 #[repr(transparent)]
@@ -67,8 +67,8 @@ where
   T: Value
 {
   #[inline(always)]
-  unsafe fn new<'a>(ptr: *const u8, len: usize) -> &'a Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(core::slice::from_raw_parts(ptr, len)) }
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
   }
 }
 
@@ -76,7 +76,7 @@ impl<T> ArrayV<T>
 where
   T: Value
 {
-  const STRIDE: usize = max(T::FIELD_SIZE, 1);
+  const STRIDE: usize = max(T::STRIDE, 1);
 
   /// ???
 
@@ -101,7 +101,7 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> T {
     let i = Self::STRIDE * index;
-    unsafe { get_field(&self.buf, i) }
+    unsafe { get_value(&self.buf, i) }
   }
 
   /// ???
@@ -125,7 +125,7 @@ where
   #[inline(always)]
   pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
     let i = Self::STRIDE * index;
-    unsafe { set_field(&mut self.buf, i, value) }
+    unsafe { set_value(&mut self.buf, i, value) }
   }
 
   /// ???
@@ -171,7 +171,7 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
-      let x = unsafe { get_field(p, 0) };
+      let x = unsafe { get_value(p, 0) };
       Some(x)
     }
   }
@@ -191,8 +191,8 @@ where
   T: Object
 {
   #[inline(always)]
-  unsafe fn new<'a>(ptr: *const u8, len: usize ) -> &'a Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(core::slice::from_raw_parts(ptr, len)) }
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
   }
 }
 
@@ -200,8 +200,8 @@ impl<T> ArrayO<T>
 where
   T: Object
 {
-  const ELT_SIZE: usize = core::mem::size_of::<T>();
-  const STRIDE: usize = max(Self::ELT_SIZE, 1);
+  const SIZE: usize = core::mem::size_of::<T>();
+  const STRIDE: usize = max(Self::SIZE, 1);
 
   /// ???
 
@@ -226,8 +226,8 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = Self::STRIDE * index;
-    let j = i + Self::ELT_SIZE;
-    unsafe { get_object(&self.buf, i, j) }
+    let j = i + Self::SIZE;
+    unsafe { get_field(&self.buf, i, j) }
   }
 
   /// ???
@@ -273,14 +273,14 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
-      let x = unsafe { get_object(p, 0, ArrayO::<T>::ELT_SIZE) };
+      let x = unsafe { get_field(p, 0, ArrayO::<T>::SIZE) };
       Some(x)
     }
   }
 }
 
 unsafe impl Value for u8 {
-  const FIELD_SIZE: usize = 1;
+  const STRIDE: usize = 1;
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
@@ -294,7 +294,7 @@ unsafe impl Value for u8 {
 }
 
 unsafe impl Value for u16 {
-  const FIELD_SIZE: usize = 2;
+  const STRIDE: usize = 2;
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
@@ -308,7 +308,7 @@ unsafe impl Value for u16 {
 }
 
 unsafe impl Value for u32 {
-  const FIELD_SIZE: usize = 4;
+  const STRIDE: usize = 4;
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
@@ -322,7 +322,35 @@ unsafe impl Value for u32 {
 }
 
 unsafe impl Value for u64 {
-  const FIELD_SIZE: usize = 8;
+  const STRIDE: usize = 8;
+
+  #[inline(always)]
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
+  }
+
+  #[inline(always)]
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
+  }
+}
+
+unsafe impl Value for f32 {
+  const STRIDE: usize = 4;
+
+  #[inline(always)]
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    Self::from_le_bytes(unsafe { get_bytes(ptr) })
+  }
+
+  #[inline(always)]
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { set_bytes(ptr, value.to_le_bytes()) }
+  }
+}
+
+unsafe impl Value for f64 {
+  const STRIDE: usize = 8;
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
@@ -336,38 +364,6 @@ unsafe impl Value for u64 {
 }
 
 /*
-
-unsafe impl Layout for f32 {
-  const SIZE: usize = 4;
-}
-
-unsafe impl Value for f32 {
-  #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
-  }
-
-  #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
-  }
-}
-
-unsafe impl Layout for f64 {
-  const SIZE: usize = 8;
-}
-
-unsafe impl Value for f64 {
-  #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    Self::from_le_bytes(unsafe { get_bytes(buf, ofs) })
-  }
-
-  #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { set_bytes(buf, ofs, value.to_le_bytes()) }
-  }
-}
 
 unsafe impl Layout for bool {
   const SIZE: usize = 1;
