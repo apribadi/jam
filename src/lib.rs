@@ -7,12 +7,6 @@ use crate::internal::get_field;
 use crate::internal::get_value;
 use crate::internal::pop_slice;
 use crate::internal::set_bytes;
-use crate::internal::set_value;
-
-/*
-use crate::internal::get_slice;
-use crate::internal::pop_slice;
-*/
 
 /// A `Value` is ...???
 ///
@@ -108,36 +102,12 @@ where
   ///
   /// PANICS:
   ///
-  /// On out-of-bounds access.
+  /// On index out of bounds.
 
   #[inline(always)]
   pub fn get(&self, index: usize) -> T {
-    if index >= self.len() { panic_out_of_bounds() }
+    if index >= self.len() { panic_index_out_of_bounds() }
     unsafe { self.get_unchecked(index) }
-  }
-
-  /// ???
-  ///
-  /// SAFETY:
-  ///
-  /// ???
-
-  #[inline(always)]
-  pub unsafe fn set_unchecked(&mut self, index: usize, value: T) {
-    let i = Self::STRIDE * index;
-    unsafe { set_value(&mut self.buf, i, value) }
-  }
-
-  /// ???
-  ///
-  /// PANICS:
-  ///
-  /// On out-of-bounds access.
-
-  #[inline(always)]
-  pub fn set(&mut self, index: usize, value: T) {
-    if index >= self.len() { panic_out_of_bounds() }
-    unsafe { self.set_unchecked(index, value) }
   }
 
   /// ???
@@ -226,19 +196,18 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = Self::STRIDE * index;
-    let j = i + Self::SIZE;
-    unsafe { get_field(&self.buf, i, j) }
+    unsafe { get_field(&self.buf, i, Self::SIZE) }
   }
 
   /// ???
   ///
   /// PANICS:
   ///
-  /// On out-of-bounds access.
+  /// On index out of bounds.
 
   #[inline(always)]
   pub fn get(&self, index: usize) -> &T {
-    if index >= self.len() { panic_out_of_bounds() }
+    if index >= self.len() { panic_index_out_of_bounds() }
     unsafe { self.get_unchecked(index) }
   }
 
@@ -255,7 +224,7 @@ where
 
 struct IterArrayO<'a, T>
 where
-  T: 'a + Object
+  T: Object + 'a
 {
   _pd: core::marker::PhantomData<fn(T) -> T>,
   buf: &'a [u8],
@@ -263,7 +232,7 @@ where
 
 impl<'a, T> Iterator for IterArrayO<'a, T>
 where
-  T: 'a + Object
+  T: Object + 'a
 {
   type Item = &'a T;
 
@@ -277,6 +246,63 @@ where
       Some(x)
     }
   }
+}
+
+#[repr(transparent)]
+pub struct ArrayI<T>
+where
+  T: Object + ?Sized
+{
+  _pd: core::marker::PhantomData<fn(T) -> T>,
+  buf: [u8],
+}
+
+unsafe impl<T> Object for ArrayI<T>
+where
+  T: Object + ?Sized
+{
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
+  }
+}
+
+impl<T> ArrayI<T>
+where
+  T: Object + ?Sized
+{
+  #[inline(always)]
+  unsafe fn __ofs(&self, index: usize) -> usize {
+    let i = 4 * (index - 3);
+    let x = unsafe { get_value::<u32>(&self.buf, i) };
+    x as usize
+  }
+
+  #[inline(always)]
+  pub fn is_empty(&self) -> bool {
+    let n = unsafe { self.__ofs(0) };
+    n == 4
+  }
+
+  #[inline(always)]
+  pub fn len(&self) -> usize {
+    let n = unsafe { self.__ofs(0) };
+    n / 4 - 1
+  }
+
+  /*
+  #[inline(always)]
+  pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+    let i = Self::STRIDE * index;
+    unsafe { get_field(&self.buf, i, Self::SIZE) }
+  }
+
+  #[inline(always)]
+  pub fn get(&self, index: usize) -> &T {
+    if index >= self.len() { panic_index_out_of_bounds() }
+    unsafe { self.get_unchecked(index) }
+  }
+  */
 }
 
 unsafe impl Value for u8 {
@@ -363,64 +389,47 @@ unsafe impl Value for f64 {
   }
 }
 
-/*
-
-unsafe impl Layout for bool {
-  const SIZE: usize = 1;
-}
-
 unsafe impl Value for bool {
+  const STRIDE: usize = 1;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    0 != unsafe { u8::get(buf, ofs) }
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    0 != unsafe { u8::get(ptr) }
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    unsafe { u8::set(buf, ofs, value as u8) }
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { u8::set(ptr, value as u8) }
   }
-}
-
-unsafe impl<T> Layout for Option<T>
-where
-  T: Value
-{
-  const SIZE: usize = 1 + T::SIZE;
 }
 
 unsafe impl<T> Value for Option<T>
 where
   T: Value
 {
+  const STRIDE: usize = 1 + T::STRIDE;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    if 0 == unsafe { u8::get(buf, ofs) } {
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    if 0 == unsafe { u8::get(ptr) } {
       None
     } else {
-      Some(unsafe { T::get(buf, ofs) })
+      Some(unsafe { T::get(ptr) })
     }
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
     match value {
       None => {
-        unsafe { u8::set(buf, ofs, 0) };
+        unsafe { u8::set(ptr, 0) };
       }
       Some(x) => {
-        unsafe { u8::set(buf, ofs, 1) };
-        unsafe { T::set(buf, ofs, x) };
+        unsafe { u8::set(ptr, 1) };
+        unsafe { T::set(ptr, x) };
       }
     }
   }
-}
-
-unsafe impl<T, E> Layout for Result<T, E>
-where
-  T: Value,
-  E: Value
-{
-  const SIZE: usize = 1 + max(T::SIZE, E::SIZE);
 }
 
 unsafe impl<T, E> Value for Result<T, E>
@@ -428,57 +437,72 @@ where
   T: Value,
   E: Value
 {
+  const STRIDE: usize = 1 + max(T::STRIDE, E::STRIDE);
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    if 0 == unsafe { u8::get(buf, ofs) } {
-      Ok(unsafe { T::get(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    if 0 == unsafe { u8::get(ptr) } {
+      Ok(unsafe { T::get(ptr) })
     } else {
-      Err(unsafe { E::get(buf, ofs) })
+      Err(unsafe { E::get(ptr) })
     }
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
     match value {
       Ok(x) => {
-        unsafe { u8::set(buf, ofs, 0) };
-        unsafe { T::set(buf, ofs, x) };
+        unsafe { u8::set(ptr, 0) };
+        unsafe { T::set(ptr, x) };
       }
       Err(e) => {
-        unsafe { u8::set(buf, ofs, 1) };
-        unsafe { E::set(buf, ofs, e) };
+        unsafe { u8::set(ptr, 1) };
+        unsafe { E::set(ptr, e) };
       }
     }
   }
 }
 
-unsafe impl<T, const N: usize> Layout for [T; N]
+unsafe impl<T, U> Value for (T, U)
 where
-  T: Value
+  T: Value,
+  U: Value
 {
-  const SIZE: usize = T::SIZE * N;
+  const STRIDE: usize = T::STRIDE + U::STRIDE;
+
+  #[inline(always)]
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    (unsafe { T::get(ptr) }, unsafe { U::get(ptr) })
+  }
+
+  #[inline(always)]
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    unsafe { T::set(ptr, value.0) };
+    unsafe { U::set(ptr, value.1) };
+  }
 }
 
 unsafe impl<T, const N: usize> Value for [T; N]
 where
   T: Value
 {
+  const STRIDE: usize = T::STRIDE * N;
+
   #[inline(always)]
-  unsafe fn get(buf: &[u8], ofs: &mut usize) -> Self {
-    core::array::from_fn(|_| unsafe { T::get(buf, ofs) })
+  unsafe fn get(ptr: &mut *const u8) -> Self {
+    core::array::from_fn(|_| unsafe { T::get(ptr) })
   }
 
   #[inline(always)]
-  unsafe fn set(buf: &mut [u8], ofs: &mut usize, value: Self) {
-    value.iter().for_each(|&x| unsafe { T::set(buf, ofs, x) });
+  unsafe fn set(ptr: &mut *mut u8, value: Self) {
+    value.iter().for_each(|&x| unsafe { T::set(ptr, x) });
   }
 }
-*/
 
 #[inline(never)]
 #[cold]
-fn panic_out_of_bounds() -> ! {
-  panic!()
+fn panic_index_out_of_bounds() -> ! {
+  panic!("index out of bounds!")
 }
 
 #[inline(always)]

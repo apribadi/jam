@@ -6,6 +6,15 @@
 #[repr(transparent)]
 pub struct Foo([u8; Self::SIZE]);
 
+unsafe impl jam::Object for Foo {
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    let p = buf.as_ptr();
+    let p = p as *const Self;
+    unsafe { &*p }
+  }
+}
+
 impl Foo {
   const OFS0: usize = 0;
   const OFS1: usize = Self::OFS0 + jam::internal::stride_of::<u32>();
@@ -20,13 +29,6 @@ impl Foo {
   pub fn b(&self) -> u32 {
     let i = Self::OFS1;
     unsafe { jam::internal::get_value(&self.0, i) }
-  }
-}
-
-unsafe impl jam::Object for Foo {
-  #[inline(always)]
-  unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { &*(buf.as_ptr() as *const Self) }
   }
 }
 
@@ -46,21 +48,29 @@ unsafe impl jam::Object for Foo {
 #[repr(transparent)]
 pub struct Bar([u8]);
 
+unsafe impl jam::Object for Bar {
+  #[inline(always)]
+  unsafe fn new(buf: &[u8]) -> &Self {
+    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
+  }
+}
+
 impl Bar {
   const OFS0: usize = 4;
   const OFS1: usize = Self::OFS0 + core::mem::size_of::<Foo>();
   const OFS2: usize = Self::OFS1 + jam::internal::stride_of::<u64>();
 
   #[inline(always)]
-  fn ofs3(&self) -> usize { unsafe { jam::internal::get_offset(&self.0, 4 * 0) } }
-
-  #[inline(always)]
-  fn ofs4(&self) -> usize { self.0.len() }
+  unsafe fn __ofs(&self, index: usize) -> usize {
+    let i = 4 * (index - 3);
+    let x = unsafe { jam::internal::get_value::<u32>(&self.0, i) };
+    x as usize
+  }
 
   pub fn a(&self) -> &Foo {
     let i = Self::OFS0;
     let j = Self::OFS1;
-    unsafe { jam::internal::get_field(&self.0, i, j) }
+    unsafe { jam::internal::get_field(&self.0, i, j - i) }
   }
 
   pub fn b(&self) -> u64 {
@@ -70,25 +80,18 @@ impl Bar {
 
   pub fn c(&self) -> &jam::ArrayO<Foo> {
     let i = Self::OFS2;
-    let j = self.ofs3();
-    unsafe { jam::internal::get_field(&self.0, i, j) }
+    let j = unsafe { self.__ofs(3) };
+    unsafe { jam::internal::get_field(&self.0, i, j - i) }
   }
 
   pub fn d(&self) -> &jam::ArrayV<u64> {
-    let i = self.ofs3();
-    let j = self.ofs4();
-    unsafe { jam::internal::get_field(&self.0, i, j) }
+    let i = unsafe { self.__ofs(3) };
+    let j = unsafe { self.__ofs(4) };
+    unsafe { jam::internal::get_field(&self.0, i, j - i) }
   }
 }
 
-/*
-
-
-pub fn foo(x: &jam::ArrayVN<u32, 10>) -> u32 {
-  x.get(1) + x.get(3)
-}
-
-pub fn bar(x: &jam::ArrayV<u32>) -> u32 {
+pub fn foo(x: &jam::ArrayV<u32>) -> u32 {
   let mut n = 0;
   for y in x.iter() {
     n += y;
@@ -96,14 +99,11 @@ pub fn bar(x: &jam::ArrayV<u32>) -> u32 {
   n
 }
 
-pub fn baz(x: &jam::ArrayO<Foo>) -> u32 {
+pub fn bar(x: &jam::ArrayO<Foo>) -> u32 {
   let mut n = 0;
-
   for y in x.iter() {
     n += y.a();
     n += y.b();
   }
-
   n
 }
-*/
