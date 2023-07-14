@@ -1,6 +1,7 @@
-#![no_std]
-
 pub mod internal;
+
+#[cfg(feature = "generate")]
+pub mod generate;
 
 use crate::internal::get_bytes;
 use crate::internal::get_field;
@@ -214,7 +215,7 @@ where
   /// ???
 
   #[inline(always)]
-  pub fn iter(&self) -> impl '_ + Iterator<Item = &'_ T> {
+  pub fn iter(&self) -> impl '_ + Iterator<Item = &T> {
     IterArrayO {
       _pd: core::marker::PhantomData,
       buf: &self.buf,
@@ -273,7 +274,7 @@ where
 {
   #[inline(always)]
   unsafe fn __ofs(&self, index: usize) -> usize {
-    let i = 4 * (index - 3);
+    let i = 4 * index;
     let x = unsafe { get_value::<u32>(&self.buf, i) };
     x as usize
   }
@@ -290,11 +291,11 @@ where
     n / 4 - 1
   }
 
-  /*
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
-    let i = Self::STRIDE * index;
-    unsafe { get_field(&self.buf, i, Self::SIZE) }
+    let i = unsafe { self.__ofs(index) };
+    let j = unsafe { self.__ofs(index + 1) };
+    unsafe { get_field(&self.buf, i, j - i) }
   }
 
   #[inline(always)]
@@ -302,7 +303,42 @@ where
     if index >= self.len() { panic_index_out_of_bounds() }
     unsafe { self.get_unchecked(index) }
   }
-  */
+
+  #[inline(always)]
+  pub fn iter(&self) -> impl '_ + Iterator<Item = &T> {
+    IterArrayI {
+      array: self,
+      len: self.len(),
+      index: 0,
+    }
+  }
+}
+
+struct IterArrayI<'a, T>
+where
+  T: Object + ?Sized + 'a
+{
+  array: &'a ArrayI<T>,
+  len: usize,
+  index: usize,
+}
+
+impl<'a, T> Iterator for IterArrayI<'a, T>
+where
+  T: Object + ?Sized + 'a
+{
+  type Item = &'a T;
+
+  #[inline(always)]
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.index == self.len {
+      None
+    } else {
+      let x = unsafe { self.array.get_unchecked(self.index) };
+      self.index += 1;
+      Some(x)
+    }
+  }
 }
 
 unsafe impl Value for u8 {
@@ -508,4 +544,14 @@ fn panic_index_out_of_bounds() -> ! {
 #[inline(always)]
 const fn max(x: usize, y: usize) -> usize {
   if x >= y { x } else { y }
+}
+
+#[macro_export]
+macro_rules! include {
+  ( ) => {
+    #[test]
+    fn _jam_include() {
+      ::jam::generate::include(file!(), line!());
+    }
+  }
 }
