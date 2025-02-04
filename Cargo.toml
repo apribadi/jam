@@ -18,7 +18,7 @@ unused_results = "warn"
 [[example]]
 crate-type = ["lib"]
 name = "spec"
-required-features = ["generate"]
+# required-features = ["generate"]
 
 [features]
 generate = ["dep:bumpalo"]

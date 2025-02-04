@@ -4,10 +4,12 @@ pub mod internal;
 pub mod generate;
 
 use crate::internal::get_bytes;
+use crate::internal::get_child;
 use crate::internal::get_field;
 use crate::internal::get_value;
 use crate::internal::pop_slice;
 use crate::internal::set_bytes;
+use crate::internal::set_value;
 
 /// A `Value` is ...???
 ///
@@ -96,7 +98,7 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> T {
     let i = Self::STRIDE * index;
-    unsafe { get_value(&self.buf, i) }
+    unsafe { get_field(&self.buf, i) }
   }
 
   /// ???
@@ -142,7 +144,7 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayV::<T>::STRIDE) };
-      let x = unsafe { get_value(p, 0) };
+      let x = unsafe { get_field(p, 0) };
       Some(x)
     }
   }
@@ -197,7 +199,7 @@ where
   #[inline(always)]
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = Self::STRIDE * index;
-    unsafe { get_field(&self.buf, i, Self::SIZE) }
+    unsafe { get_child(&self.buf, i, Self::SIZE) }
   }
 
   /// ???
@@ -243,14 +245,14 @@ where
       None
     } else {
       let p = unsafe { pop_slice(&mut self.buf, ArrayO::<T>::STRIDE) };
-      let x = unsafe { get_field(p, 0, ArrayO::<T>::SIZE) };
+      let x = unsafe { get_child(p, 0, ArrayO::<T>::SIZE) };
       Some(x)
     }
   }
 }
 
 #[repr(transparent)]
-pub struct ArrayI<T>
+pub struct ArrayU<T>
 where
   T: Object + ?Sized
 {
@@ -258,7 +260,7 @@ where
   buf: [u8],
 }
 
-unsafe impl<T> Object for ArrayI<T>
+unsafe impl<T> Object for ArrayU<T>
 where
   T: Object + ?Sized
 {
@@ -268,14 +270,14 @@ where
   }
 }
 
-impl<T> ArrayI<T>
+impl<T> ArrayU<T>
 where
   T: Object + ?Sized
 {
   #[inline(always)]
   unsafe fn __ofs(&self, index: usize) -> usize {
     let i = 4 * index;
-    let x = unsafe { get_value::<u32>(&self.buf, i) };
+    let x = unsafe { get_field::<u32>(&self.buf, i) };
     x as usize
   }
 
@@ -295,7 +297,7 @@ where
   pub unsafe fn get_unchecked(&self, index: usize) -> &T {
     let i = unsafe { self.__ofs(index) };
     let j = unsafe { self.__ofs(index + 1) };
-    unsafe { get_field(&self.buf, i, j - i) }
+    unsafe { get_child(&self.buf, i, j - i) }
   }
 
   #[inline(always)]
@@ -306,7 +308,7 @@ where
 
   #[inline(always)]
   pub fn iter(&self) -> impl '_ + Iterator<Item = &T> {
-    IterArrayI {
+    IterArrayU {
       array: self,
       len: self.len(),
       index: 0,
@@ -314,16 +316,16 @@ where
   }
 }
 
-struct IterArrayI<'a, T>
+struct IterArrayU<'a, T>
 where
   T: Object + ?Sized + 'a
 {
-  array: &'a ArrayI<T>,
+  array: &'a ArrayU<T>,
   len: usize,
   index: usize,
 }
 
-impl<'a, T> Iterator for IterArrayI<'a, T>
+impl<'a, T> Iterator for IterArrayU<'a, T>
 where
   T: Object + ?Sized + 'a
 {
@@ -430,12 +432,12 @@ unsafe impl Value for bool {
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
-    0 != unsafe { u8::get(ptr) }
+    0u8 != unsafe { get_value(ptr) }
   }
 
   #[inline(always)]
   unsafe fn set(ptr: &mut *mut u8, value: Self) {
-    unsafe { u8::set(ptr, value as u8) }
+    unsafe { set_value(ptr, value as u8) }
   }
 }
 
@@ -447,10 +449,10 @@ where
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
-    if 0 == unsafe { u8::get(ptr) } {
+    if 0u8 == unsafe { get_value(ptr) } {
       None
     } else {
-      Some(unsafe { T::get(ptr) })
+      Some(unsafe { get_value(ptr) })
     }
   }
 
@@ -458,11 +460,11 @@ where
   unsafe fn set(ptr: &mut *mut u8, value: Self) {
     match value {
       None => {
-        unsafe { u8::set(ptr, 0) };
+        unsafe { set_value(ptr, 0u8) };
       }
       Some(x) => {
-        unsafe { u8::set(ptr, 1) };
-        unsafe { T::set(ptr, x) };
+        unsafe { set_value(ptr, 1u8) };
+        unsafe { set_value(ptr, x) };
       }
     }
   }
@@ -477,10 +479,10 @@ where
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
-    if 0 == unsafe { u8::get(ptr) } {
-      Ok(unsafe { T::get(ptr) })
+    if 0u8 == unsafe { get_value(ptr) } {
+      Ok(unsafe { get_value(ptr) })
     } else {
-      Err(unsafe { E::get(ptr) })
+      Err(unsafe { get_value(ptr) })
     }
   }
 
@@ -488,12 +490,12 @@ where
   unsafe fn set(ptr: &mut *mut u8, value: Self) {
     match value {
       Ok(x) => {
-        unsafe { u8::set(ptr, 0) };
-        unsafe { T::set(ptr, x) };
+        unsafe { set_value(ptr, 0u8) };
+        unsafe { set_value(ptr, x) };
       }
       Err(e) => {
-        unsafe { u8::set(ptr, 1) };
-        unsafe { E::set(ptr, e) };
+        unsafe { set_value(ptr, 1u8) };
+        unsafe { set_value(ptr, e) };
       }
     }
   }
@@ -508,13 +510,13 @@ where
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
-    (unsafe { T::get(ptr) }, unsafe { U::get(ptr) })
+    (unsafe { get_value(ptr) }, unsafe { get_value(ptr) })
   }
 
   #[inline(always)]
   unsafe fn set(ptr: &mut *mut u8, value: Self) {
-    unsafe { T::set(ptr, value.0) };
-    unsafe { U::set(ptr, value.1) };
+    unsafe { set_value(ptr, value.0) };
+    unsafe { set_value(ptr, value.1) };
   }
 }
 
@@ -526,12 +528,12 @@ where
 
   #[inline(always)]
   unsafe fn get(ptr: &mut *const u8) -> Self {
-    core::array::from_fn(|_| unsafe { T::get(ptr) })
+    core::array::from_fn(|_| unsafe { get_value(ptr) })
   }
 
   #[inline(always)]
   unsafe fn set(ptr: &mut *mut u8, value: Self) {
-    value.iter().for_each(|&x| unsafe { T::set(ptr, x) });
+    value.iter().for_each(|&x| unsafe { set_value(ptr, x) });
   }
 }
 

@@ -42,6 +42,8 @@ pub fn include(file: &str, line: u32) {
   }
 }
 
+/*
+
 #[derive(Clone, Copy)]
 enum PrimitiveType {
   F32,
@@ -89,6 +91,7 @@ impl ValueType {
   }
 }
 
+*/
 fn compile() -> String {
 "
 // START OF GENERATED CODE

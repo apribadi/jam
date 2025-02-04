@@ -3,32 +3,26 @@
 //   b U32
 // end
 
-#[repr(transparent)]
-pub struct Foo([u8; Self::SIZE]);
+#[repr(C)]
+pub struct Foo {
+  __a: [u8; <u32 as ::jam::Value>::STRIDE],
+  __b: [u8; <u32 as ::jam::Value>::STRIDE],
+}
 
 unsafe impl ::jam::Object for Foo {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
-    let p = buf.as_ptr();
-    let p = p as *const Self;
-    unsafe { &*p }
+    unsafe { &*(buf.as_ptr() as *const Self) }
   }
 }
 
 impl Foo {
-  const OFS0: usize = 0;
-  const OFS1: usize = Self::OFS0 + ::jam::internal::stride_of::<u32>();
-  const OFS2: usize = Self::OFS1 + ::jam::internal::stride_of::<u32>();
-  const SIZE: usize = Self::OFS2;
-
   pub fn a(&self) -> u32 {
-    let i = Self::OFS0;
-    unsafe { ::jam::internal::get_value(&self.0, i) }
+    unsafe { <u32 as ::jam::Value>::get(&mut {&self.__a as *const u8}) }
   }
 
   pub fn b(&self) -> u32 {
-    let i = Self::OFS1;
-    unsafe { ::jam::internal::get_value(&self.0, i) }
+    unsafe { <u32 as ::jam::Value>::get(&mut {&self.__b as *const u8}) }
   }
 }
 
@@ -38,56 +32,74 @@ impl Foo {
 //   c Array[Foo]
 //   d Array[U64]
 // end
-//
-// k : 0 .. 4
-// a : 4 .. 12
-// b : 12 .. 20
-// c : 20 .. 20 + k
-// d : 20 + k ..
 
-#[repr(transparent)]
-pub struct Bar([u8]);
+#[repr(C)]
+pub struct Bar {
+  __a: Foo,
+  __b: [u8; <u64 as ::jam::Value>::STRIDE],
+  ofs: [[u8; 4]; 1],
+  fam: [u8],
+}
 
 unsafe impl ::jam::Object for Bar {
   #[inline(always)]
   unsafe fn new(buf: &[u8]) -> &Self {
-    unsafe { core::mem::transmute::<&[u8], &Self>(buf) }
+    let p = buf.as_ptr();
+    let n = buf.len();
+    let q = ::core::ptr::slice_from_raw_parts(p, 0) as *const Self;
+    let m = ::core::mem::size_of_val(unsafe { &*q });
+    let q = ::core::ptr::slice_from_raw_parts(p, n - m) as *const Self;
+    unsafe { &*q }
   }
 }
 
 impl Bar {
-  const OFS0: usize = 4;
-  const OFS1: usize = Self::OFS0 + core::mem::size_of::<Foo>();
-  const OFS2: usize = Self::OFS1 + ::jam::internal::stride_of::<u64>();
-
-  #[inline(always)]
-  unsafe fn __ofs(&self, index: usize) -> usize {
-    let i = 4 * (index - 3);
-    let x = unsafe { ::jam::internal::get_value::<u32>(&self.0, i) };
-    x as usize
-  }
-
   pub fn a(&self) -> &Foo {
-    let i = Self::OFS0;
-    let j = Self::OFS1;
-    unsafe { ::jam::internal::get_field(&self.0, i, j - i) }
+    &self.__a
   }
 
   pub fn b(&self) -> u64 {
-    let i = Self::OFS1;
-    unsafe { ::jam::internal::get_value(&self.0, i) }
+    unsafe { <u64 as ::jam::Value>::get(&mut {&self.__b as *const u8}) }
   }
 
-  pub fn c(&self) -> &::jam::ArrayO<Foo> {
-    let i = Self::OFS2;
-    let j = unsafe { self.__ofs(3) };
-    unsafe { ::jam::internal::get_field(&self.0, i, j - i) }
+  pub fn c_(&self) -> &::jam::ArrayO<Foo> {
+    let i = 0;
+    let j = u32::from_le_bytes(self.ofs[0]) as usize;
+    unsafe { ::jam::internal::get_child(&self.fam, i, j - i) }
+  }
+
+  pub fn c(&self) -> &[Foo] {
+    let i = 0;
+    let j = u32::from_le_bytes(self.ofs[0]) as usize;
+    let n = (j - i) / ::core::mem::size_of::<Foo>();
+    let p = self.fam.as_ptr().wrapping_add(i) as *const Foo;
+    unsafe { ::core::slice::from_raw_parts(p, n) }
   }
 
   pub fn d(&self) -> &::jam::ArrayV<u64> {
-    let i = unsafe { self.__ofs(3) };
-    let j = self.0.len();
-    unsafe { ::jam::internal::get_field(&self.0, i, j - i) }
+    let i = u32::from_le_bytes(self.ofs[0]) as usize;
+    let j = self.fam.len();
+    unsafe { ::jam::internal::get_child(&self.fam, i, j - i) }
+  }
+}
+
+// choice Baz
+//   A(Foo)
+//   B(Bar)
+// end
+
+pub enum Baz<'a> {
+  A(&'a Foo),
+  B(&'a Bar),
+}
+
+impl<'a> Baz<'a> {
+  pub fn new(buf: &'a [u8]) -> Self {
+    match unsafe { buf.get_unchecked(0) } {
+      0 => Self::A(unsafe { ::jam::internal::get_child(buf, 1, buf.len() - 1) }),
+      1 => Self::B(unsafe { ::jam::internal::get_child(buf, 1, buf.len() - 1) }),
+      _ => unsafe { ::core::hint::unreachable_unchecked() },
+    }
   }
 }
 
